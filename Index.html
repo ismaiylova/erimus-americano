@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Генератор пар · Бадминтон Американо</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  /* ===== НАСТРОЙКА ОБЛАКА (Supabase) =====
+     Впишите сюда два значения из вашего проекта Supabase:
+     Settings → Data API (или API):  Project URL  и  anon public key.
+     Если оставить пустыми — приложение работает офлайн (память устройства). */
+  const SUPABASE_URL = "https://iiomlgjtbyrahcmcgyvw.supabase.co";   // например "https://abcdefgh.supabase.co"
+  const SUPABASE_KEY = "sb_publishable_JnoHCwVkUp5JsRbFe9b4MQ_V9OiV68n";   // публичный anon-ключ (publishable)
+</script>
+<style>
+  :root{
+    --bg:#f4ece0;
+    --bg-2:#efe5d6;
+    --panel:#fbf7f0;
+    --panel-2:#f3ebdd;
+    --line:#e0d3bf;
+    --line-strong:#d2c1a6;
+    --navy:#16315c;
+    --navy-2:#22457a;
+    --navy-soft:#5d7299;
+    --blue:#2f5fd0;
+    --blue-hover:#2450b8;
+    --accent:#c8772f;
+    --good:#1f7a4d;
+    --bad:#b03d3d;
+    --radius:16px;
+    --shadow:0 14px 30px -18px rgba(22,49,92,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1100px 500px at 85% -8%, rgba(47,95,208,.07), transparent 60%),
+      radial-gradient(800px 400px at -5% 105%, rgba(200,119,47,.06), transparent 55%),
+      var(--bg);
+    color:var(--navy);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:940px;margin:0 auto;padding:28px 18px 80px}
+  header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:14px}
+  .shuttle{width:44px;height:44px;flex:none}
+  h1{font-family:"Fraunces",serif;font-size:clamp(28px,5vw,44px);line-height:.96;margin:0;font-weight:900;letter-spacing:-.02em;color:var(--navy)}
+  h1 .accent{color:var(--blue);font-style:italic}
+  .sub{color:var(--navy-soft);font-size:14px;margin-top:6px;max-width:50ch}
+  .mono{font-family:"IBM Plex Mono",monospace}
+
+  .tabs{display:flex;gap:6px;background:var(--panel-2);padding:6px;border-radius:999px;border:1px solid var(--line);width:fit-content;margin-bottom:20px;flex-wrap:wrap}
+  .tab{appearance:none;border:0;background:transparent;color:var(--navy-soft);font-family:inherit;font-weight:600;font-size:14px;padding:10px 18px;border-radius:999px;cursor:pointer;transition:.18s;white-space:nowrap}
+  .tab.active{background:var(--blue);color:#fff;box-shadow:0 6px 16px -8px var(--blue)}
+  .tab:not(.active):hover{color:var(--navy)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:18px}
+  .card h2{margin:0 0 4px;font-size:15px;font-weight:700;letter-spacing:.01em;font-family:"Fraunces",serif}
+  .card .hint{color:var(--navy-soft);font-size:12.5px;margin:0 0 14px}
+
+  label.fld{display:block;font-size:11px;color:var(--navy-soft);font-weight:700;margin:0 0 6px;text-transform:uppercase;letter-spacing:.07em}
+  textarea{
+    width:100%;min-height:148px;resize:vertical;background:#fffdf9;color:var(--navy);
+    border:1px solid var(--line-strong);border-radius:12px;padding:12px 14px;font-family:"IBM Plex Mono",monospace;
+    font-size:14px;line-height:1.6;outline:none;transition:.15s;
+  }
+  textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,95,208,.14)}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:560px){.twocol{grid-template-columns:1fr}}
+
+  .controls{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-top:16px}
+  .ctrl{display:flex;flex-direction:column;gap:6px}
+  .ctrl small{color:var(--navy-soft);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+  .stepper{display:flex;align-items:center;background:#fffdf9;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden}
+  .stepper button{appearance:none;border:0;background:transparent;color:var(--navy);width:38px;height:42px;font-size:20px;cursor:pointer;font-family:inherit}
+  .stepper button:hover{background:var(--panel-2);color:var(--blue)}
+  .stepper input{width:54px;height:42px;border:0;background:transparent;color:var(--navy);text-align:center;font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:600;outline:none}
+  .seg{display:flex;background:#fffdf9;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden}
+  .seg button{appearance:none;border:0;background:transparent;color:var(--navy-soft);font-family:inherit;font-weight:600;font-size:14px;padding:0 16px;height:42px;cursor:pointer;transition:.15s}
+  .seg button.on{background:var(--blue);color:#fff}
+
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+  .btn{appearance:none;border:0;font-family:inherit;font-weight:700;font-size:15px;padding:13px 22px;border-radius:12px;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:8px}
+  .btn.primary{background:var(--blue);color:#fff}
+  .btn.primary:hover{background:var(--blue-hover);transform:translateY(-1px);box-shadow:0 12px 22px -10px var(--blue)}
+  .btn.ghost{background:transparent;color:var(--navy);border:1px solid var(--line-strong)}
+  .btn.ghost:hover{border-color:var(--blue);color:var(--blue)}
+  .btn.danger{background:transparent;color:var(--bad);border:1px solid #e3c4c4}
+  .btn.danger:hover{background:#f7e9e9}
+  .btn:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+
+  .saved-note{font-size:12px;color:var(--navy-soft);margin-top:10px;display:flex;align-items:center;gap:6px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--good);display:inline-block}
+
+  #cloudCard{padding:14px 18px}
+  .cloud-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .cloud-status{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--navy-soft);font-weight:500}
+  .cloud-dot{width:9px;height:9px;border-radius:50%;background:var(--line-strong);flex:none}
+  .cloud-dot.on{background:var(--good);box-shadow:0 0 0 3px rgba(31,122,77,.18)}
+  .cloud-dot.sync{background:var(--accent);box-shadow:0 0 0 3px rgba(200,119,47,.18)}
+  .cloud-dot.err{background:var(--bad)}
+  .cloud-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tcode{font-size:13px;color:var(--navy-soft);margin-right:4px}
+  .tcode b{font-family:"IBM Plex Mono",monospace;color:var(--blue);font-size:14px}
+  .btn.small{font-size:13px;padding:8px 14px}
+
+  .err{background:#f9e8e2;border:1px solid #e9c3b4;color:#8a3b22;padding:12px 14px;border-radius:10px;font-size:13.5px;margin-top:14px;display:none}
+  .err.show{display:block}
+
+  /* standings */
+  .standings-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .standings-head h2{font-family:"Fraunces",serif;font-size:22px;margin:0;font-weight:800}
+  table.tbl{width:100%;border-collapse:collapse;font-size:14px}
+  table.tbl th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--navy-soft);font-weight:700;padding:8px 10px;border-bottom:2px solid var(--line-strong)}
+  table.tbl td{padding:10px;border-bottom:1px solid var(--line)}
+  table.tbl tr:last-child td{border-bottom:0}
+  table.tbl td.rank{font-family:"Fraunces",serif;font-weight:800;color:var(--blue);width:36px;font-size:16px}
+  table.tbl td.name{font-weight:600}
+  table.tbl td.num{font-family:"IBM Plex Mono",monospace;text-align:right;width:70px}
+  .delta-pos{color:var(--good);font-weight:600}
+  .delta-neg{color:var(--bad);font-weight:600}
+  .delta-zero{color:var(--navy-soft)}
+  tr.top1 td{background:rgba(47,95,208,.06)}
+
+  .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+  .pill{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--navy-soft);background:var(--panel);border:1px solid var(--line);padding:6px 12px;border-radius:999px}
+  .pill b{color:var(--blue);font-weight:600}
+
+  .round{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .round-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;gap:10px}
+  .round-head .rname{font-family:"Fraunces",serif;font-size:20px;font-weight:800;letter-spacing:-.01em}
+  .round-head .rname span{color:var(--blue)}
+  .resting{font-size:12px;color:var(--accent);font-family:"IBM Plex Mono",monospace}
+  .resting.none{color:var(--navy-soft)}
+
+  .games{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  .game{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:14px;position:relative;overflow:hidden}
+  .game::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--blue)}
+  .court{font-family:"IBM Plex Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--navy-soft);margin-bottom:10px;display:flex;justify-content:space-between}
+  .court b{color:var(--accent)}
+  .vs-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px}
+  .team{display:flex;flex-direction:column;gap:3px}
+  .team .pl{font-weight:600;font-size:14.5px;line-height:1.25}
+  .vs{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--accent);font-weight:600;text-align:center}
+  .score{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line-strong)}
+  .score input{width:48px;height:40px;text-align:center;background:#fffdf9;border:1px solid var(--line-strong);border-radius:8px;color:var(--navy);font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:600;outline:none}
+  .score input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,95,208,.14)}
+  .score .colon{color:var(--navy-soft);font-weight:700}
+
+  .section-label{font-family:"Fraunces",serif;font-size:15px;font-weight:700;color:var(--navy);margin:24px 0 10px;display:flex;align-items:center;gap:10px}
+  .section-label::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  footer.foot{text-align:center;color:var(--navy-soft);font-size:12px;margin-top:30px;line-height:1.7}
+  footer.foot code{background:var(--panel);padding:2px 7px;border-radius:6px;font-family:"IBM Plex Mono",monospace;color:var(--blue)}
+
+  @media print{
+    body{background:#fff}
+    .tabs,.actions,.foot,header.top .sub,.score input,.controls,#saveBar,.standings-head .btn{display:none!important}
+    .card:has(#single-input),.card:has(#double-input){display:none!important}
+    .round,.game,.card{box-shadow:none;border-color:#bbb;background:#fff;break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg class="shuttle" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="24" cy="35" r="9" fill="var(--blue)"/>
+        <path d="M24 28 L14 6 M24 28 L24 4 M24 28 L34 6" stroke="var(--navy)" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M15 9 L33 9 M13 16 L35 16" stroke="var(--navy-soft)" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>Пары <span class="accent">Американо</span></h1>
+        <p class="sub">Случайные пары без повторов, разбивка по кортам, таблица по разнице воланов. Списки и история сохраняются на устройстве.</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- TOURNAMENT / CLOUD BAR -->
+  <div class="card" id="cloudCard">
+    <div class="cloud-row">
+      <div class="cloud-status">
+        <span class="cloud-dot" id="cloudDot"></span>
+        <span id="cloudStatus">Облако не настроено — данные на устройстве</span>
+      </div>
+      <div class="cloud-actions" id="cloudActions" style="display:none">
+        <span class="tcode" id="tcodeWrap" style="display:none">Турнир: <b id="tcode"></b></span>
+        <button class="btn ghost small" id="newTourBtn">Новый турнир</button>
+        <button class="btn ghost small" id="openTourBtn">Открыть по коду</button>
+        <button class="btn ghost small" id="copyLinkBtn" style="display:none">Скопировать ссылку</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-mode="single" role="tab">Один список</button>
+    <button class="tab" data-mode="double" role="tab">Два списка (микст)</button>
+  </div>
+
+  <!-- INPUT -->
+  <div class="card">
+    <div id="single-input">
+      <h2>Список игроков</h2>
+      <p class="hint">По одному имени в строке. Максимум 16. Пары — случайные, без повторов между раундами.</p>
+      <label class="fld" for="listA">Игроки</label>
+      <textarea id="listA" placeholder="Аня&#10;Борис&#10;Вера&#10;Глеб&#10;Дина&#10;Егор&#10;Жанна&#10;Захар"></textarea>
+    </div>
+
+    <div id="double-input" style="display:none">
+      <h2>Микст — два списка</h2>
+      <p class="hint">В каждой паре один из левого списка и один из правого. Без повторов пар между раундами.</p>
+      <div class="twocol">
+        <div>
+          <label class="fld" for="listM">Список 1 (например, мужчины)</label>
+          <textarea id="listM" placeholder="Борис&#10;Глеб&#10;Егор&#10;Захар"></textarea>
+        </div>
+        <div>
+          <label class="fld" for="listW">Список 2 (например, женщины)</label>
+          <textarea id="listW" placeholder="Аня&#10;Вера&#10;Дина&#10;Жанна"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl">
+        <small>Кортов</small>
+        <div class="seg" id="courtsSeg">
+          <button data-c="1">1</button>
+          <button data-c="2" class="on">2</button>
+          <button data-c="3">3</button>
+          <button data-c="4">4</button>
+        </div>
+      </div>
+      <div class="ctrl">
+        <small>Добавить раундов</small>
+        <div class="stepper">
+          <button id="rMinus" type="button">−</button>
+          <input id="rounds" class="mono" value="1" inputmode="numeric">
+          <button id="rPlus" type="button">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="addBtn">＋ Добавить раунд(ы)</button>
+      <button class="btn ghost" id="maxBtn">До максимума</button>
+      <button class="btn ghost" id="printBtn">🖨 Печать / PDF</button>
+      <button class="btn danger" id="resetBtn">Сбросить турнир</button>
+    </div>
+    <div id="saveBar" class="saved-note"><span class="dot"></span><span id="saveText">Данные сохраняются автоматически на этом устройстве.</span></div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="standings"></div>
+  <div id="out"></div>
+
+  <footer class="foot">
+    Один файл — работает офлайн. Списки и сыгранные раунды хранятся в браузере этого устройства.<br>
+    Таблица считает <code>разницу воланов</code> со знаком: победитель получает +разницу, проигравший −разницу.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ===================== persistence (local + cloud) ===================== */
+const STORE_KEY = "badminton_americano_v2";
+let DB = loadDB();
+
+// cloud state
+let sb = null;             // supabase client
+let CLOUD = false;         // configured?
+let TID = null;            // current tournament id (cloud)
+let saveTimer = null;      // debounce cloud writes
+
+function blankState(){
+  return {
+    mode:"single",
+    courts:2,
+    listA:"", listM:"", listW:"",
+    rounds:[],
+    usedPairs:[],
+    playCount:{}
+  };
+}
+function loadDB(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){ const d=JSON.parse(raw); return Object.assign(blankState(), d); }
+  }catch(e){}
+  return blankState();
+}
+
+function saveLocal(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }catch(e){}
+}
+
+/* saveDB: write locally always; if cloud active, debounce-push to Supabase */
+function saveDB(){
+  saveLocal();
+  if(CLOUD && TID){
+    setCloudDot("sync","Сохранение в облако…");
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(pushCloud, 600);
+  } else {
+    flashSaved();
+  }
+}
+
+let flashT;
+function flashSaved(){
+  const t=$("#saveText");
+  if(!t) return;
+  t.textContent="Сохранено ✓";
+  clearTimeout(flashT);
+  flashT=setTimeout(()=>{t.textContent="Данные сохраняются автоматически на этом устройстве.";},1400);
+}
+
+/* ---- cloud helpers ---- */
+function randCode(){
+  const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s=""; for(let i=0;i<6;i++) s+=c[Math.floor(Math.random()*c.length)];
+  return s;
+}
+function setCloudDot(kind,text){
+  const dot=$("#cloudDot"), st=$("#cloudStatus");
+  if(!dot) return;
+  dot.className="cloud-dot"+(kind?(" "+kind):"");
+  if(text) st.textContent=text;
+}
+async function pushCloud(){
+  if(!CLOUD||!TID) return;
+  try{
+    const { error } = await sb.from("tournaments")
+      .upsert({ id:TID, data:DB, updated_at:new Date().toISOString() });
+    if(error) throw error;
+    setCloudDot("on","Синхронизировано ✓ · турнир "+TID);
+  }catch(e){
+    setCloudDot("err","Ошибка сохранения в облако (данные есть на устройстве)");
+  }
+}
+async function pullCloud(id){
+  const { data, error } = await sb.from("tournaments").select("data").eq("id",id).maybeSingle();
+  if(error) throw error;
+  return data ? data.data : null;
+}
+function setUrlCode(id){
+  try{
+    const u=new URL(window.location.href);
+    u.searchParams.set("t",id);
+    history.replaceState(null,"",u.toString());
+  }catch(e){}
+}
+function showTcode(id){
+  $("#tcodeWrap").style.display = id?"inline":"none";
+  $("#copyLinkBtn").style.display = id?"inline-flex":"none";
+  if(id) $("#tcode").textContent=id;
+}
+
+async function initCloud(){
+  if(!(SUPABASE_URL && SUPABASE_KEY && window.supabase)){
+    CLOUD=false;
+    setCloudDot("","Облако не настроено — данные на этом устройстве");
+    return;
+  }
+  try{
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    CLOUD = true;
+    $("#cloudActions").style.display="flex";
+    setCloudDot("on","Облако подключено");
+
+    const url=new URL(window.location.href);
+    const codeFromUrl=(url.searchParams.get("t")||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+    const codeSaved=DB.cloudId;
+
+    if(codeFromUrl){
+      await openTournament(codeFromUrl, true);
+    } else if(codeSaved){
+      await openTournament(codeSaved, true);
+    } else {
+      setCloudDot("on","Облако готово · создайте или откройте турнир");
+    }
+  }catch(e){
+    CLOUD=false;
+    setCloudDot("err","Не удалось подключить облако — работаем на устройстве");
+  }
+}
+
+async function newTournament(){
+  if(!CLOUD) return;
+  const id=randCode();
+  TID=id; DB.cloudId=id;
+  setUrlCode(id); showTcode(id);
+  await pushCloud();
+  saveLocal();
+  setCloudDot("on","Новый турнир создан · "+id);
+}
+
+async function openTournament(id, silent){
+  if(!CLOUD) return;
+  id=(id||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  if(id.length<4){ if(!silent) showErr("Код турнира слишком короткий."); return; }
+  setCloudDot("sync","Загрузка турнира "+id+"…");
+  try{
+    const remote=await pullCloud(id);
+    if(remote){
+      DB=Object.assign(blankState(), remote);
+    } else {
+      // code not found -> create it with current (or blank) state
+      DB.cloudId=id;
+    }
+    DB.cloudId=id; TID=id;
+    setUrlCode(id); showTcode(id);
+    saveLocal();
+    applyDBToInputs(); renderAll();
+    await pushCloud();
+    setCloudDot("on","Турнир "+id+" открыт");
+  }catch(e){
+    setCloudDot("err","Не удалось открыть турнир (проверьте код и настройку)");
+  }
+}
+
+/* ===================== helpers ===================== */
+const $ = s => document.querySelector(s);
+const shuffle = a => { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
+const parseList = t => [...new Set(t.split("\n").map(s=>s.trim()).filter(Boolean))];
+const pkey = (a,b) => [a,b].sort().join("\u0000");
+const dkey = (a,b) => a+"\u0000"+b;
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function showErr(m){ const e=$("#err"); if(!m){e.classList.remove("show");e.textContent="";return;} e.textContent=m; e.classList.add("show"); }
+
+/* ===================== pairing engines ===================== */
+function tryPairUp(active, usedSet){
+  const result=[];
+  function bt(rem){
+    if(rem.length===0) return true;
+    const a=rem[0], rest=rem.slice(1);
+    for(const idx of shuffle(rest.map((_,i)=>i))){
+      const b=rest[idx];
+      if(usedSet.has(pkey(a,b))) continue;
+      result.push([a,b]);
+      if(bt(rest.filter((_,i)=>i!==idx))) return true;
+      result.pop();
+    }
+    return false;
+  }
+  return bt(active.slice())?result:null;
+}
+function buildSingleRound(players, usedSet, playCount, courts){
+  const n=players.length;
+  const seats=Math.min(courts*4, Math.floor(n/4)*4);
+  if(seats<4) return null;
+  const restN=n-seats;
+  for(let a=0;a<500;a++){
+    const pool=shuffle(players.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
+    const restSet=new Set(pool.slice(0,restN));
+    const active=shuffle(players.filter(p=>!restSet.has(p)));
+    const pairs=tryPairUp(active, usedSet);
+    if(pairs){
+      const games=[];
+      for(let i=0;i<pairs.length;i+=2) games.push({court:games.length+1,t1:pairs[i],t2:pairs[i+1],sa:"",sb:""});
+      return {games,active,resting:[...restSet]};
+    }
+  }
+  return null;
+}
+function matchCross(ms, ws, usedSet){
+  const res=[];
+  function bt(i,freeW){
+    if(i===ms.length) return true;
+    const a=ms[i];
+    for(const k of shuffle(freeW.map((_,j)=>j))){
+      const b=freeW[k];
+      if(usedSet.has(dkey(a,b))) continue;
+      res.push([a,b]);
+      if(bt(i+1,freeW.filter((_,j)=>j!==k))) return true;
+      res.pop();
+    }
+    return false;
+  }
+  return bt(0,ws.slice())?res:null;
+}
+function buildDoubleRound(L1,L2,usedSet,playCount,courts){
+  let pc=Math.min(Math.min(L1.length,L2.length), courts*2);
+  pc=Math.floor(pc/2)*2;
+  if(pc<2) return null;
+  for(let a=0;a<600;a++){
+    const m=shuffle(L1.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
+    const w=shuffle(L2.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
+    const useM=shuffle(m.slice(0,pc)), useW=shuffle(w.slice(0,pc));
+    const pairs=matchCross(useM,useW,usedSet);
+    if(pairs){
+      const games=[];
+      for(let i=0;i<pairs.length;i+=2) games.push({court:games.length+1,t1:pairs[i],t2:pairs[i+1],sa:"",sb:""});
+      const active=pairs.flat();
+      const resting=[...L1,...L2].filter(p=>!active.includes(p));
+      return {games,active,resting};
+    }
+  }
+  return null;
+}
+
+/* ===================== add rounds ===================== */
+function addRounds(count, toMax){
+  showErr("");
+  syncInputsToDB();
+  const usedSet=new Set(DB.usedPairs);
+  const courts=DB.courts;
+  let added=0, stopped=false;
+
+  if(DB.mode==="single"){
+    const players=parseList(DB.listA);
+    if(players.length<4){ showErr("Нужно минимум 4 игрока."); return; }
+    if(players.length>16){ showErr("Максимум 16 игроков."); return; }
+    const limit=toMax?999:count;
+    for(let i=0;i<limit;i++){
+      const rd=buildSingleRound(players, usedSet, DB.playCount, courts);
+      if(!rd){ stopped=true; break; }
+      rd.games.forEach(g=>{ usedSet.add(pkey(g.t1[0],g.t1[1])); usedSet.add(pkey(g.t2[0],g.t2[1])); });
+      rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
+      DB.rounds.push(rd); added++;
+    }
+  } else {
+    const L1=parseList(DB.listM), L2=parseList(DB.listW);
+    if(L1.length<2||L2.length<2){ showErr("В каждом списке минимум 2 человека."); return; }
+    if(L1.length+L2.length>16){ showErr("Максимум 16 игроков суммарно."); return; }
+    const limit=toMax?999:count;
+    for(let i=0;i<limit;i++){
+      const rd=buildDoubleRound(L1,L2,usedSet,DB.playCount,courts);
+      if(!rd){ stopped=true; break; }
+      rd.games.forEach(g=>{ usedSet.add(dkey(g.t1[0],g.t1[1])); usedSet.add(dkey(g.t2[0],g.t2[1])); });
+      rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
+      DB.rounds.push(rd); added++;
+    }
+  }
+  DB.usedPairs=[...usedSet];
+  saveDB();
+  renderAll();
+  if(added===0){ showErr("Новых раундов нет — все возможные пары уже сыграны."); }
+  else if(stopped && toMax){ /* fine */ }
+  else if(stopped){ showErr("Добавлено "+added+" — дальше пары начали бы повторяться."); }
+  $("#out").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+/* ===================== standings ===================== */
+function computeStandings(){
+  const stat={}; // name -> {games, wins, plus, minus, diff}
+  const touch=n=>{ if(!stat[n]) stat[n]={name:n,games:0,wins:0,scored:0,conceded:0,diff:0}; return stat[n]; };
+  DB.rounds.forEach(rd=>{
+    rd.games.forEach(g=>{
+      const a=parseInt(g.sa,10), b=parseInt(g.sb,10);
+      const t1=[g.t1[0],g.t1[1]], t2=[g.t2[0],g.t2[1]];
+      const haveScore = !isNaN(a)&&!isNaN(b);
+      [...t1,...t2].forEach(p=>{ if(haveScore) touch(p).games++; });
+      if(!haveScore) return;
+      const d=a-b;
+      t1.forEach(p=>{ const s=touch(p); s.scored+=a; s.conceded+=b; s.diff+=d; if(d>0)s.wins++; });
+      t2.forEach(p=>{ const s=touch(p); s.scored+=b; s.conceded+=a; s.diff-=d; if(d<0)s.wins++; });
+    });
+  });
+  return Object.values(stat).sort((x,y)=> y.diff-x.diff || y.wins-x.wins || y.scored-x.scored || x.name.localeCompare(y.name));
+}
+function renderStandings(){
+  const box=$("#standings");
+  const rows=computeStandings();
+  if(!rows.length || rows.every(r=>r.games===0)){ box.innerHTML=""; return; }
+  let html=`<div class="card">
+    <div class="standings-head">
+      <h2>Таблица — разница воланов</h2>
+      <button class="btn ghost" id="clearScores">Очистить счёт</button>
+    </div>
+    <table class="tbl"><thead><tr>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
+      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+    </tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    const cls=r.diff>0?"delta-pos":r.diff<0?"delta-neg":"delta-zero";
+    const sign=r.diff>0?"+":"";
+    html+=`<tr class="${i===0?'top1':''}">
+      <td class="rank">${i+1}</td>
+      <td class="name">${esc(r.name)}</td>
+      <td class="num">${r.games}</td>
+      <td class="num">${r.wins}</td>
+      <td class="num">${r.scored}</td>
+      <td class="num">${r.conceded}</td>
+      <td class="num ${cls}">${sign}${r.diff}</td>
+    </tr>`;
+  });
+  html+=`</tbody></table></div>`;
+  box.innerHTML=html;
+  $("#clearScores").onclick=()=>{
+    if(!confirm("Очистить все введённые счета? Сетка раундов останется.")) return;
+    DB.rounds.forEach(rd=>rd.games.forEach(g=>{g.sa="";g.sb="";}));
+    saveDB(); renderAll();
+  };
+}
+
+/* ===================== rounds render ===================== */
+function renderRounds(){
+  const out=$("#out");
+  if(!DB.rounds.length){ out.innerHTML=`<p class="hint" style="text-align:center;color:var(--navy-soft)">Пока нет раундов. Заполните список и нажмите «Добавить раунд(ы)».</p>`; return; }
+  let html=`<div class="meta">
+    <span class="pill">режим: <b>${DB.mode==="single"?"один список":"микст"}</b></span>
+    <span class="pill">раундов: <b>${DB.rounds.length}</b></span>
+    <span class="pill">кортов: <b>${DB.courts}</b></span>
+  </div>`;
+  DB.rounds.forEach((rd,ri)=>{
+    const rest=rd.resting&&rd.resting.length?`Отдыхают: ${rd.resting.map(esc).join(", ")}`:"Все играют";
+    html+=`<div class="round">
+      <div class="round-head">
+        <div class="rname">Раунд <span>${ri+1}</span></div>
+        <div class="resting ${rd.resting&&rd.resting.length?"":"none"}">${rest}</div>
+      </div><div class="games">`;
+    rd.games.forEach((g,gi)=>{
+      html+=`<div class="game">
+        <div class="court"><span>Корт ${g.court}</span><b>Игра ${gi+1}</b></div>
+        <div class="vs-row">
+          <div class="team"><span class="pl">${esc(g.t1[0])}</span><span class="pl">${esc(g.t1[1])}</span></div>
+          <div class="vs">VS</div>
+          <div class="team" style="text-align:right"><span class="pl">${esc(g.t2[0])}</span><span class="pl">${esc(g.t2[1])}</span></div>
+        </div>
+        <div class="score">
+          <input class="mono" inputmode="numeric" maxlength="2" value="${esc(g.sa)}" data-r="${ri}" data-g="${gi}" data-side="a">
+          <span class="colon">:</span>
+          <input class="mono" inputmode="numeric" maxlength="2" value="${esc(g.sb)}" data-r="${ri}" data-g="${gi}" data-side="b">
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+  out.innerHTML=html;
+  out.querySelectorAll(".score input").forEach(inp=>{
+    inp.addEventListener("input",()=>{
+      inp.value=inp.value.replace(/[^0-9]/g,"");
+      const r=+inp.dataset.r,g=+inp.dataset.g,side=inp.dataset.side;
+      DB.rounds[r].games[g][side==="a"?"sa":"sb"]=inp.value;
+    });
+    inp.addEventListener("change",()=>{ saveDB(); renderStandings(); });
+  });
+}
+
+function renderAll(){ renderStandings(); renderRounds(); }
+
+/* ===================== inputs <-> DB ===================== */
+function syncInputsToDB(){
+  DB.listA=$("#listA").value;
+  DB.listM=$("#listM").value;
+  DB.listW=$("#listW").value;
+}
+function applyDBToInputs(){
+  $("#listA").value=DB.listA||"";
+  $("#listM").value=DB.listM||"";
+  $("#listW").value=DB.listW||"";
+  // mode tabs
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.mode===DB.mode));
+  $("#single-input").style.display=DB.mode==="single"?"block":"none";
+  $("#double-input").style.display=DB.mode==="double"?"block":"none";
+  // courts
+  document.querySelectorAll("#courtsSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.c===DB.courts));
+}
+
+/* ===================== events ===================== */
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click",()=>{
+    if(DB.rounds.length && t.dataset.mode!==DB.mode){
+      if(!confirm("Смена режима сбросит текущий турнир. Продолжить?")) return;
+      DB.rounds=[]; DB.usedPairs=[]; DB.playCount={};
+    }
+    DB.mode=t.dataset.mode;
+    applyDBToInputs(); saveDB(); renderAll(); showErr("");
+  });
+});
+$("#courtsSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  DB.courts=+b.dataset.c; applyDBToInputs(); saveDB();
+});
+["listA","listM","listW"].forEach(id=>{
+  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); clearTimeout(flashT); });
+  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); saveDB(); });
+});
+const roundsInput=$("#rounds");
+$("#rMinus").onclick=()=>roundsInput.value=Math.max(1,(+roundsInput.value||1)-1);
+$("#rPlus").onclick=()=>roundsInput.value=Math.min(30,(+roundsInput.value||1)+1);
+roundsInput.addEventListener("input",()=>roundsInput.value=roundsInput.value.replace(/[^0-9]/g,""));
+
+$("#addBtn").onclick=()=>addRounds(Math.max(1,+roundsInput.value||1),false);
+$("#maxBtn").onclick=()=>addRounds(0,true);
+$("#printBtn").onclick=()=>window.print();
+$("#resetBtn").onclick=()=>{
+  if(!confirm("Сбросить турнир? Списки игроков останутся, но все раунды и счета будут удалены.")) return;
+  DB.rounds=[]; DB.usedPairs=[]; DB.playCount={};
+  saveDB(); renderAll(); showErr("");
+};
+
+/* ===================== init ===================== */
+$("#newTourBtn").onclick=()=>{
+  if(DB.rounds.length && !confirm("Создать новый пустой турнир? Текущий останется в облаке под своим кодом, но здесь откроется чистый.")) return;
+  DB=blankState(); applyDBToInputs(); renderAll(); newTournament();
+};
+$("#openTourBtn").onclick=()=>{
+  const code=prompt("Введите код турнира (6 символов):");
+  if(code) openTournament(code.trim(), false);
+};
+$("#copyLinkBtn").onclick=async ()=>{
+  try{
+    const u=new URL(window.location.href);
+    if(TID) u.searchParams.set("t",TID);
+    await navigator.clipboard.writeText(u.toString());
+    setCloudDot("on","Ссылка скопирована ✓");
+  }catch(e){ showErr("Не удалось скопировать — скопируйте адрес из строки браузера вручную."); }
+};
+
+applyDBToInputs();
+renderAll();
+initCloud();
+</script>
+</body>
+</html>
