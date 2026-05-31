@@ -66,6 +66,11 @@
   .card .hint{color:var(--navy-soft);font-size:12.5px;margin:0 0 14px}
 
   label.fld{display:block;font-size:11px;color:var(--navy-soft);font-weight:700;margin:0 0 6px;text-transform:uppercase;letter-spacing:.07em}
+  .fld-row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .counter{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--blue);background:rgba(47,95,208,.09);border:1px solid rgba(47,95,208,.18);padding:2px 9px;border-radius:999px;white-space:nowrap}
+  .counter.warn{color:var(--bad);background:rgba(176,61,61,.09);border-color:rgba(176,61,61,.22)}
+  .count-summary{margin-top:10px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--navy-soft);text-align:right}
+  .count-summary b{color:var(--blue)}
   textarea{
     width:100%;min-height:148px;resize:vertical;background:#fffdf9;color:var(--navy);
     border:1px solid var(--line-strong);border-radius:12px;padding:12px 14px;font-family:"IBM Plex Mono",monospace;
@@ -110,6 +115,30 @@
   .tcode{font-size:13px;color:var(--navy-soft);margin-right:4px}
   .tcode b{font-family:"IBM Plex Mono",monospace;color:var(--blue);font-size:14px}
   .btn.small{font-size:13px;padding:8px 14px}
+
+  .tname-row{display:flex;align-items:center;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .tname-row input{flex:1;min-width:180px;background:#fffdf9;border:1px solid var(--line-strong);border-radius:10px;padding:9px 12px;color:var(--navy);font-family:inherit;font-size:14px;font-weight:600;outline:none}
+  .tname-row input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,95,208,.14)}
+  .tdate{font-size:12px;color:var(--navy-soft);font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+
+  .modal-back{position:fixed;inset:0;background:rgba(22,49,92,.32);backdrop-filter:blur(3px);display:none;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:50}
+  .modal-back.open{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:0 30px 60px -25px rgba(22,49,92,.6);width:100%;max-width:520px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 12px}
+  .modal-head h2{font-family:"Fraunces",serif;font-size:20px;margin:0;font-weight:800}
+  .modal-x{appearance:none;border:0;background:transparent;color:var(--navy-soft);font-size:20px;cursor:pointer;padding:4px 8px;border-radius:8px}
+  .modal-x:hover{background:var(--panel-2);color:var(--navy)}
+  #listSearch{margin:0 20px 12px;background:#fffdf9;border:1px solid var(--line-strong);border-radius:10px;padding:10px 12px;color:var(--navy);font-family:inherit;font-size:14px;outline:none}
+  #listSearch:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,95,208,.14)}
+  .tlist{overflow-y:auto;padding:0 12px 16px}
+  .titem{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;margin:0 8px 8px;cursor:pointer;transition:.14s;background:var(--panel)}
+  .titem:hover{border-color:var(--blue);background:var(--panel-2)}
+  .titem.current{border-color:var(--blue);box-shadow:0 0 0 2px rgba(47,95,208,.18) inset}
+  .titem .ti-main{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .titem .ti-name{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .titem .ti-meta{font-size:12px;color:var(--navy-soft);font-family:"IBM Plex Mono",monospace}
+  .titem .ti-meta .code{color:var(--blue)}
+  .titem .ti-badge{font-size:11px;color:var(--accent);font-family:"IBM Plex Mono",monospace;flex:none}
 
   .err{background:#f9e8e2;border:1px solid #e9c3b4;color:#8a3b22;padding:12px 14px;border-radius:10px;font-size:13.5px;margin-top:14px;display:none}
   .err.show{display:block}
@@ -192,11 +221,29 @@
         <span id="cloudStatus">Облако не настроено — данные на устройстве</span>
       </div>
       <div class="cloud-actions" id="cloudActions" style="display:none">
-        <span class="tcode" id="tcodeWrap" style="display:none">Турнир: <b id="tcode"></b></span>
+        <span class="tcode" id="tcodeWrap" style="display:none">Код: <b id="tcode"></b></span>
         <button class="btn ghost small" id="newTourBtn">Новый турнир</button>
+        <button class="btn ghost small" id="listTourBtn">Все турниры</button>
         <button class="btn ghost small" id="openTourBtn">Открыть по коду</button>
         <button class="btn ghost small" id="copyLinkBtn" style="display:none">Скопировать ссылку</button>
       </div>
+    </div>
+    <div class="tname-row" id="tnameRow" style="display:none">
+      <label class="fld" for="tname" style="margin:0">Название турнира</label>
+      <input id="tname" type="text" placeholder="Напр. Вторник, вечерняя тренировка" maxlength="60">
+      <span class="tdate" id="tdate"></span>
+    </div>
+  </div>
+
+  <!-- TOURNAMENT LIST MODAL -->
+  <div class="modal-back" id="listModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Турниры клуба</h2>
+        <button class="modal-x" id="listClose">✕</button>
+      </div>
+      <input id="listSearch" type="text" placeholder="Поиск по названию или коду…">
+      <div class="tlist" id="tlist"><p class="hint">Загрузка…</p></div>
     </div>
   </div>
 
@@ -210,7 +257,10 @@
     <div id="single-input">
       <h2>Список игроков</h2>
       <p class="hint">По одному имени в строке. Максимум 16. Пары — случайные, без повторов между раундами.</p>
-      <label class="fld" for="listA">Игроки</label>
+      <div class="fld-row">
+        <label class="fld" for="listA">Игроки</label>
+        <span class="counter" id="countA">0 игроков</span>
+      </div>
       <textarea id="listA" placeholder="Аня&#10;Борис&#10;Вера&#10;Глеб&#10;Дина&#10;Егор&#10;Жанна&#10;Захар"></textarea>
     </div>
 
@@ -219,14 +269,21 @@
       <p class="hint">В каждой паре один из левого списка и один из правого. Без повторов пар между раундами.</p>
       <div class="twocol">
         <div>
-          <label class="fld" for="listM">Список 1 (например, мужчины)</label>
+          <div class="fld-row">
+            <label class="fld" for="listM">Список 1 (например, мужчины)</label>
+            <span class="counter" id="countM">0</span>
+          </div>
           <textarea id="listM" placeholder="Борис&#10;Глеб&#10;Егор&#10;Захар"></textarea>
         </div>
         <div>
-          <label class="fld" for="listW">Список 2 (например, женщины)</label>
+          <div class="fld-row">
+            <label class="fld" for="listW">Список 2 (например, женщины)</label>
+            <span class="counter" id="countW">0</span>
+          </div>
           <textarea id="listW" placeholder="Аня&#10;Вера&#10;Дина&#10;Жанна"></textarea>
         </div>
       </div>
+      <div class="count-summary" id="countMix">Всего 0 · пар можно собрать: 0</div>
     </div>
 
     <div class="controls">
@@ -288,7 +345,9 @@ function blankState(){
     listA:"", listM:"", listW:"",
     rounds:[],
     usedPairs:[],
-    playCount:{}
+    playCount:{},
+    name:"",
+    createdAt:null
   };
 }
 function loadDB(){
@@ -324,6 +383,19 @@ function flashSaved(){
   flashT=setTimeout(()=>{t.textContent="Данные сохраняются автоматически на этом устройстве.";},1400);
 }
 
+/* ---- local "recent tournaments" registry ---- */
+const RECENTS_KEY = "badminton_recents_v1";
+function getRecents(){
+  try{ return JSON.parse(localStorage.getItem(RECENTS_KEY)||"[]"); }catch(e){ return []; }
+}
+function rememberRecent(id, name){
+  if(!id) return;
+  let r=getRecents().filter(x=>x.id!==id);
+  r.unshift({ id, name:name||"", seen:Date.now() });
+  r=r.slice(0,20);
+  try{ localStorage.setItem(RECENTS_KEY, JSON.stringify(r)); }catch(e){}
+}
+
 /* ---- cloud helpers ---- */
 function randCode(){
   const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -336,13 +408,25 @@ function setCloudDot(kind,text){
   dot.className="cloud-dot"+(kind?(" "+kind):"");
   if(text) st.textContent=text;
 }
+function fmtDate(ts){
+  if(!ts) return "";
+  const d=new Date(ts);
+  if(isNaN(d)) return "";
+  return d.toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric"});
+}
 async function pushCloud(){
   if(!CLOUD||!TID) return;
   try{
-    const { error } = await sb.from("tournaments")
-      .upsert({ id:TID, data:DB, updated_at:new Date().toISOString() });
+    const { error } = await sb.from("tournaments").upsert({
+      id:TID,
+      data:DB,
+      name:(DB.name||"").slice(0,60),
+      created_at: DB.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
     if(error) throw error;
-    setCloudDot("on","Синхронизировано ✓ · турнир "+TID);
+    rememberRecent(TID, DB.name);
+    setCloudDot("on","Синхронизировано ✓ · "+(DB.name?DB.name:("турнир "+TID)));
   }catch(e){
     setCloudDot("err","Ошибка сохранения в облако (данные есть на устройстве)");
   }
@@ -351,6 +435,15 @@ async function pullCloud(id){
   const { data, error } = await sb.from("tournaments").select("data").eq("id",id).maybeSingle();
   if(error) throw error;
   return data ? data.data : null;
+}
+async function fetchTournamentList(){
+  // lightweight: only id, name, dates — not the full data blob
+  const { data, error } = await sb.from("tournaments")
+    .select("id,name,created_at,updated_at")
+    .order("updated_at",{ascending:false})
+    .limit(200);
+  if(error) throw error;
+  return data||[];
 }
 function setUrlCode(id){
   try{
@@ -362,7 +455,10 @@ function setUrlCode(id){
 function showTcode(id){
   $("#tcodeWrap").style.display = id?"inline":"none";
   $("#copyLinkBtn").style.display = id?"inline-flex":"none";
+  $("#tnameRow").style.display = id?"flex":"none";
   if(id) $("#tcode").textContent=id;
+  $("#tname").value = DB.name||"";
+  $("#tdate").textContent = DB.createdAt?("создан "+fmtDate(DB.createdAt)):"";
 }
 
 async function initCloud(){
@@ -397,8 +493,10 @@ async function initCloud(){
 async function newTournament(){
   if(!CLOUD) return;
   const id=randCode();
-  TID=id; DB.cloudId=id;
+  TID=id; DB.cloudId=id; DB.createdAt=new Date().toISOString();
+  if(!DB.name) DB.name="Турнир "+fmtDate(DB.createdAt);
   setUrlCode(id); showTcode(id);
+  rememberRecent(id, DB.name);
   await pushCloud();
   saveLocal();
   setCloudDot("on","Новый турнир создан · "+id);
@@ -414,18 +512,54 @@ async function openTournament(id, silent){
     if(remote){
       DB=Object.assign(blankState(), remote);
     } else {
-      // code not found -> create it with current (or blank) state
       DB.cloudId=id;
+      if(!DB.createdAt) DB.createdAt=new Date().toISOString();
     }
     DB.cloudId=id; TID=id;
     setUrlCode(id); showTcode(id);
+    rememberRecent(id, DB.name);
     saveLocal();
     applyDBToInputs(); renderAll();
     await pushCloud();
-    setCloudDot("on","Турнир "+id+" открыт");
+    setCloudDot("on","Открыт: "+(DB.name?DB.name:("турнир "+id)));
   }catch(e){
     setCloudDot("err","Не удалось открыть турнир (проверьте код и настройку)");
   }
+}
+
+/* ---- tournament list modal ---- */
+let _listCache=[];
+async function openListModal(){
+  $("#listModal").classList.add("open");
+  $("#tlist").innerHTML='<p class="hint">Загрузка…</p>';
+  let cloudList=[];
+  try{ cloudList=await fetchTournamentList(); }
+  catch(e){ /* fall back to recents only */ }
+  // merge: cloud entries + any local recents not present in cloud
+  const byId={};
+  cloudList.forEach(t=>{ byId[t.id]={id:t.id,name:t.name||"",created:t.created_at,updated:t.updated_at,fromCloud:true}; });
+  getRecents().forEach(r=>{ if(!byId[r.id]) byId[r.id]={id:r.id,name:r.name||"",created:null,updated:r.seen,fromCloud:false}; });
+  _listCache=Object.values(byId).sort((a,b)=> new Date(b.updated||0)-new Date(a.updated||0));
+  renderList(_listCache);
+}
+function renderList(items){
+  const box=$("#tlist");
+  if(!items.length){ box.innerHTML='<p class="hint">Пока нет сохранённых турниров.</p>'; return; }
+  const recentIds=new Set(getRecents().map(r=>r.id));
+  box.innerHTML=items.map(t=>{
+    const name=t.name||("Турнир "+t.id);
+    const date=t.created?fmtDate(t.created):"";
+    const isCur=t.id===TID;
+    const badge=isCur?'<span class="ti-badge">открыт</span>':(recentIds.has(t.id)?'<span class="ti-badge">недавний</span>':'');
+    return `<div class="titem ${isCur?'current':''}" data-id="${esc(t.id)}">
+      <div class="ti-main">
+        <span class="ti-name">${esc(name)}</span>
+        <span class="ti-meta"><span class="code">${esc(t.id)}</span>${date?(" · "+date):""}</span>
+      </div>${badge}</div>`;
+  }).join("");
+  box.querySelectorAll(".titem").forEach(el=>{
+    el.onclick=()=>{ $("#listModal").classList.remove("open"); openTournament(el.dataset.id,false); };
+  });
 }
 
 /* ===================== helpers ===================== */
@@ -665,6 +799,7 @@ function applyDBToInputs(){
   $("#double-input").style.display=DB.mode==="double"?"block":"none";
   // courts
   document.querySelectorAll("#courtsSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.c===DB.courts));
+  if(typeof updateCounts==="function") updateCounts();
 }
 
 /* ===================== events ===================== */
@@ -682,8 +817,34 @@ $("#courtsSeg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
   DB.courts=+b.dataset.c; applyDBToInputs(); saveDB();
 });
+function updateCounts(){
+  const a=parseList($("#listA").value).length;
+  const cA=$("#countA");
+  cA.textContent = plural(a,"игрок","игрока","игроков");
+  cA.classList.toggle("warn", a>16);
+
+  const m=parseList($("#listM").value).length;
+  const w=parseList($("#listW").value).length;
+  $("#countM").textContent=String(m);
+  $("#countW").textContent=String(w);
+  const pairs=Math.min(m,w);
+  const total=m+w;
+  const cMix=$("#countMix");
+  cMix.innerHTML=`Всего <b>${total}</b> · пар можно собрать: <b>${pairs}</b>`;
+  $("#countM").classList.toggle("warn", total>16);
+  $("#countW").classList.toggle("warn", total>16);
+}
+function plural(n,one,few,many){
+  const n10=n%10, n100=n%100;
+  let w;
+  if(n10===1 && n100!==11) w=one;
+  else if(n10>=2 && n10<=4 && (n100<10||n100>=20)) w=few;
+  else w=many;
+  return n+" "+w;
+}
+
 ["listA","listM","listW"].forEach(id=>{
-  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); clearTimeout(flashT); });
+  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); clearTimeout(flashT); });
   $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); saveDB(); });
 });
 const roundsInput=$("#rounds");
@@ -709,6 +870,16 @@ $("#openTourBtn").onclick=()=>{
   const code=prompt("Введите код турнира (6 символов):");
   if(code) openTournament(code.trim(), false);
 };
+$("#listTourBtn").onclick=()=>openListModal();
+$("#listClose").onclick=()=>$("#listModal").classList.remove("open");
+$("#listModal").addEventListener("click",e=>{ if(e.target===$("#listModal")) $("#listModal").classList.remove("open"); });
+$("#listSearch").addEventListener("input",e=>{
+  const q=e.target.value.toLowerCase().trim();
+  if(!q){ renderList(_listCache); return; }
+  renderList(_listCache.filter(t=>(t.name||"").toLowerCase().includes(q)||t.id.toLowerCase().includes(q)));
+});
+$("#tname").addEventListener("input",e=>{ DB.name=e.target.value; });
+$("#tname").addEventListener("change",()=>{ saveDB(); });
 $("#copyLinkBtn").onclick=async ()=>{
   try{
     const u=new URL(window.location.href);
