@@ -190,6 +190,42 @@
   footer.foot{text-align:center;color:var(--navy-soft);font-size:12px;margin-top:30px;line-height:1.7}
   footer.foot code{background:var(--panel);padding:2px 7px;border-radius:6px;font-family:"IBM Plex Mono",monospace;color:var(--blue)}
 
+  /* fixed pairs */
+  .fixed-pairs-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
+  .fp-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:6px}
+  .fp-head h3{font-family:"Fraunces",serif;font-size:15px;margin:0;font-weight:700;letter-spacing:.01em}
+  .fp-mode{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--navy-soft);font-weight:500}
+  .fp-mode b{color:var(--blue)}
+  .fp-hint{color:var(--navy-soft);font-size:12.5px;margin:0 0 12px}
+  .fp-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .fp-add select{
+    background:#fffdf9;border:1px solid var(--line-strong);border-radius:10px;padding:0 10px;height:38px;
+    color:var(--navy);font-family:inherit;font-size:14px;font-weight:600;outline:none;
+    min-width:130px;flex:1 1 130px;cursor:pointer;
+  }
+  .fp-add select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,95,208,.14)}
+  .fp-add select:disabled{opacity:.5;cursor:not-allowed}
+  .fp-add .plus{color:var(--accent);font-weight:700;font-size:18px;flex:none}
+  .fp-add .btn.small{flex:none}
+  .fp-list{display:flex;flex-wrap:wrap;gap:8px;min-height:28px}
+  .fp-chip{
+    display:inline-flex;align-items:center;gap:8px;
+    background:rgba(47,95,208,.08);border:1px solid rgba(47,95,208,.22);
+    color:var(--navy);font-weight:600;font-size:13.5px;
+    padding:5px 6px 5px 12px;border-radius:999px;line-height:1.2;
+  }
+  .fp-chip .plus-sm{color:var(--accent);font-weight:700;font-family:"IBM Plex Mono",monospace}
+  .fp-chip button{
+    appearance:none;border:0;background:transparent;color:var(--navy-soft);
+    width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:15px;font-weight:700;
+    display:inline-flex;align-items:center;justify-content:center;font-family:inherit;padding:0;
+    transition:.14s;
+  }
+  .fp-chip button:hover{background:rgba(176,61,61,.14);color:var(--bad)}
+  .fp-empty{color:var(--navy-soft);font-size:12.5px;margin:0;font-style:italic}
+  .game.has-fixed::before{background:var(--accent)}
+  .pair-locked{color:var(--accent);font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px}
+
   @media print{
     body{background:#fff}
     .tabs,.actions,.foot,header.top .sub,.score input,.controls,#saveBar,.standings-head .btn{display:none!important}
@@ -210,7 +246,7 @@
       <div>
         <div class="club">СК «ЭРИМУС-СПОРТ»</div>
         <h1>Пары <span class="accent">Американо</span></h1>
-        <p class="sub">Случайные пары без повторов, разбивка по кортам, таблица по разнице воланов. Списки и история сохраняются автоматически: на устройстве, а при подключённом облаке — ещё и онлайн по коду турнира.</p>
+        <p class="sub">Случайные пары без повторов, фиксированные пары при необходимости, разбивка по кортам, таблица по разнице воланов. Списки и история сохраняются автоматически: на устройстве, а при подключённом облаке — ещё и онлайн по коду турнира.</p>
       </div>
     </div>
   </header>
@@ -288,6 +324,20 @@
       <div class="count-summary" id="countMix">Всего 0 · пар можно собрать: 0</div>
     </div>
 
+    <div class="fixed-pairs-section" id="fixedPairsSection">
+      <div class="fp-head">
+        <h3>Фиксированные пары <span class="fp-mode" id="fpModeInfo"></span></h3>
+      </div>
+      <p class="fp-hint" id="fpHint">Эти пары всегда играют вместе во всех раундах. Остальные игроки разбиваются на пары случайно, без повторов. Можно оставить пустым.</p>
+      <div class="fp-add">
+        <select id="fp1"><option value="">— игрок —</option></select>
+        <span class="plus">+</span>
+        <select id="fp2"><option value="">— игрок —</option></select>
+        <button class="btn ghost small" id="fpAddBtn" type="button">＋ Добавить пару</button>
+      </div>
+      <div id="fpList" class="fp-list"></div>
+    </div>
+
     <div class="controls">
       <div class="ctrl">
         <small>Кортов</small>
@@ -345,6 +395,7 @@ function blankState(){
     mode:"single",
     courts:2,
     listA:"", listM:"", listW:"",
+    fixedPairs:[],
     rounds:[],
     usedPairs:[],
     playCount:{},
@@ -358,6 +409,8 @@ function migrateState(d){
   if(d && Array.isArray(d.usedPairs)){
     d.usedPairs = d.usedPairs.map(k => typeof k==="string" ? k.split("\u0000").join("\u001F") : k);
   }
+  // fixedPairs added later — default to []
+  if(d && !Array.isArray(d.fixedPairs)) d.fixedPairs = [];
   return d;
 }
 function loadDB(){
@@ -581,6 +634,46 @@ const dkey = (a,b) => a+"\u001F"+b;
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function showErr(m){ const e=$("#err"); if(!m){e.classList.remove("show");e.textContent="";return;} e.textContent=m; e.classList.add("show"); }
 
+/* Возвращает фиксированные пары, оставляя только те, что валидны для текущего режима/списков */
+function getValidFixedPairs(){
+  if(!Array.isArray(DB.fixedPairs)) return [];
+  if(DB.mode==="single"){
+    const players = new Set(parseList(DB.listA));
+    const used = new Set();
+    const out = [];
+    for(const pair of DB.fixedPairs){
+      if(!Array.isArray(pair) || pair.length!==2) continue;
+      const [a,b] = pair;
+      if(typeof a!=="string" || typeof b!=="string") continue;
+      if(a===b) continue;
+      if(!players.has(a) || !players.has(b)) continue;
+      if(used.has(a) || used.has(b)) continue;
+      used.add(a); used.add(b);
+      out.push([a,b]);
+    }
+    return out;
+  } else {
+    const L1 = new Set(parseList(DB.listM));
+    const L2 = new Set(parseList(DB.listW));
+    const used1 = new Set(), used2 = new Set();
+    const out = [];
+    for(const pair of DB.fixedPairs){
+      if(!Array.isArray(pair) || pair.length!==2) continue;
+      const [a,b] = pair;
+      if(typeof a!=="string" || typeof b!=="string") continue;
+      if(!L1.has(a) || !L2.has(b)) continue;
+      if(used1.has(a) || used2.has(b)) continue;
+      used1.add(a); used2.add(b);
+      out.push([a,b]);
+    }
+    return out;
+  }
+}
+/* Подчищает DB.fixedPairs: убирает невалидные элементы (после изменения списков/режима) */
+function cleanupFixedPairs(){
+  DB.fixedPairs = getValidFixedPairs();
+}
+
 /* ===================== pairing engines ===================== */
 function tryPairUp(active, usedSet){
   const result=[];
@@ -598,24 +691,70 @@ function tryPairUp(active, usedSet){
   }
   return bt(active.slice())?result:null;
 }
-function buildSingleRound(players, usedSet, playCount, courts){
-  const n=players.length;
-  const seats=Math.min(courts*4, Math.floor(n/4)*4);
-  if(seats<4) return null;
-  const restN=n-seats;
-  for(let a=0;a<500;a++){
-    const pool=shuffle(players.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
-    const restSet=new Set(pool.slice(0,restN));
-    const active=shuffle(players.filter(p=>!restSet.has(p)));
-    const pairs=tryPairUp(active, usedSet);
-    if(pairs){
-      const games=[];
-      for(let i=0;i<pairs.length;i+=2) games.push({court:games.length+1,t1:pairs[i],t2:pairs[i+1],sa:"",sb:""});
-      return {games,active,resting:[...restSet]};
+
+/* Build a round with optional "locked" (fixed) pairs.
+   Locked pairs always play together; they don't go into usedSet
+   (they're meant to repeat). Random pool fills the remaining slots.
+   All pairs (locked + random) are then shuffled to randomize who
+   plays on which court and against whom. */
+function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
+  const K = lockedPairs.length;
+  if(K > courts*2) return null; // не хватает кортов для всех фиксированных пар
+
+  const lockedSet = new Set();
+  for(const [a,b] of lockedPairs){
+    if(!players.includes(a) || !players.includes(b)) return null;
+    lockedSet.add(a); lockedSet.add(b);
+  }
+  const randomPool = players.filter(p => !lockedSet.has(p));
+  const Rn = randomPool.length;
+
+  // games count: each game = 2 pairs = 4 seats. seats >= 2K (locked) and (seats - 2K) is even & ≤ Rn
+  const maxGames = Math.min(courts, Math.floor((2*K + Rn)/4));
+  const minGames = Math.ceil(K/2); // нужно хотя бы столько кортов, чтобы все locked играли
+  if(maxGames < minGames || maxGames < 1) return null;
+
+  // try games from max down to min — пытаемся вместить максимум
+  for(let games = maxGames; games >= Math.max(1,minGames); games--){
+    const seats = games*4;
+    const randomSeats = seats - 2*K;
+    if(randomSeats < 0 || randomSeats > Rn) continue;
+    const restN = Rn - randomSeats;
+
+    for(let attempt=0; attempt<400; attempt++){
+      const pool = shuffle(randomPool.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
+      const restSet = new Set(pool.slice(0,restN));
+      const active = shuffle(randomPool.filter(p=>!restSet.has(p)));
+      const pairs = randomSeats===0 ? [] : tryPairUp(active, usedSet);
+      if(pairs){
+        // объединяем locked + random, перемешиваем порядок (рандомная расстановка по кортам/матчам)
+        const allPairs = shuffle([
+          ...lockedPairs.map(p => [p[0], p[1]]),
+          ...pairs
+        ]);
+        const lockedKeySet = new Set(lockedPairs.map(p => pkey(p[0],p[1])));
+        const gamesArr = [];
+        for(let i=0; i<allPairs.length; i+=2){
+          const t1=allPairs[i], t2=allPairs[i+1];
+          gamesArr.push({
+            court: gamesArr.length+1,
+            t1, t2,
+            t1Fixed: lockedKeySet.has(pkey(t1[0],t1[1])),
+            t2Fixed: lockedKeySet.has(pkey(t2[0],t2[1])),
+            sa:"", sb:""
+          });
+        }
+        return {
+          games:gamesArr,
+          active:[...lockedSet, ...active],
+          resting:[...restSet]
+        };
+      }
     }
   }
   return null;
 }
+
 function matchCross(ms, ws, usedSet){
   const res=[];
   function bt(i,freeW){
@@ -632,21 +771,63 @@ function matchCross(ms, ws, usedSet){
   }
   return bt(0,ws.slice())?res:null;
 }
-function buildDoubleRound(L1,L2,usedSet,playCount,courts){
-  let pc=Math.min(Math.min(L1.length,L2.length), courts*2);
-  pc=Math.floor(pc/2)*2;
-  if(pc<2) return null;
-  for(let a=0;a<600;a++){
-    const m=shuffle(L1.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
-    const w=shuffle(L2.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
-    const useM=shuffle(m.slice(0,pc)), useW=shuffle(w.slice(0,pc));
-    const pairs=matchCross(useM,useW,usedSet);
-    if(pairs){
-      const games=[];
-      for(let i=0;i<pairs.length;i+=2) games.push({court:games.length+1,t1:pairs[i],t2:pairs[i+1],sa:"",sb:""});
-      const active=pairs.flat();
-      const resting=[...L1,...L2].filter(p=>!active.includes(p));
-      return {games,active,resting};
+
+function buildDoubleRound(L1, L2, lockedPairs, usedSet, playCount, courts){
+  const K = lockedPairs.length;
+  if(K > courts*2) return null;
+
+  const L1Set = new Set(L1), L2Set = new Set(L2);
+  const lockedFromL1 = new Set(), lockedFromL2 = new Set();
+  for(const [a,b] of lockedPairs){
+    if(!L1Set.has(a) || !L2Set.has(b)) return null;
+    if(lockedFromL1.has(a) || lockedFromL2.has(b)) return null;
+    lockedFromL1.add(a); lockedFromL2.add(b);
+  }
+  const remL1 = L1.filter(p => !lockedFromL1.has(p));
+  const remL2 = L2.filter(p => !lockedFromL2.has(p));
+
+  // максимально возможное число случайных кросс-пар
+  const maxR = Math.min(remL1.length, remL2.length);
+  // общее кол-во пар (K+r) ≤ courts*2 и чётно (каждые 2 пары = 1 игра)
+  let r = Math.min(maxR, courts*2 - K);
+  if((K + r) % 2 !== 0) r--;
+  if(r < 0) return null;
+
+  const minGames = Math.ceil(K/2);
+
+  // пробуем уменьшать r, если не получается собрать
+  for(; r >= 0 && (K + r) % 2 === 0; r -= 2){
+    const games = (K + r) / 2;
+    if(games < minGames || games < 1) break;
+
+    for(let attempt=0; attempt<500; attempt++){
+      const m = shuffle(remL1.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
+      const w = shuffle(remL2.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
+      const useM = shuffle(m.slice(0,r));
+      const useW = shuffle(w.slice(0,r));
+      const pairs = r===0 ? [] : matchCross(useM, useW, usedSet);
+      if(pairs){
+        const allPairs = shuffle([
+          ...lockedPairs.map(p => [p[0], p[1]]),
+          ...pairs
+        ]);
+        const lockedKeySet = new Set(lockedPairs.map(p => dkey(p[0],p[1])));
+        const gamesArr = [];
+        for(let i=0; i<allPairs.length; i+=2){
+          const t1=allPairs[i], t2=allPairs[i+1];
+          gamesArr.push({
+            court: gamesArr.length+1,
+            t1, t2,
+            t1Fixed: lockedKeySet.has(dkey(t1[0],t1[1])),
+            t2Fixed: lockedKeySet.has(dkey(t2[0],t2[1])),
+            sa:"", sb:""
+          });
+        }
+        const active = [...lockedFromL1, ...lockedFromL2, ...useM, ...useW];
+        const activeSet = new Set(active);
+        const resting = [...L1, ...L2].filter(p => !activeSet.has(p));
+        return { games:gamesArr, active, resting };
+      }
     }
   }
   return null;
@@ -658,17 +839,32 @@ function addRounds(count, toMax){
   syncInputsToDB();
   const usedSet=new Set(DB.usedPairs);
   const courts=DB.courts;
+  const lockedPairs = getValidFixedPairs();
+  const K = lockedPairs.length;
   let added=0, stopped=false;
 
   if(DB.mode==="single"){
     const players=parseList(DB.listA);
     if(players.length<4){ showErr("Нужно минимум 4 игрока."); return; }
     if(players.length>16){ showErr("Максимум 16 игроков."); return; }
-    const limit=toMax?999:count;
+    if(K > courts*2){
+      showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
+      return;
+    }
+    // если все игроки в фиксированных парах — каждый раунд почти одинаков; ограничим
+    const allLocked = (K*2 === players.length);
+    const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
+    if(toMax && allLocked){
+      showErr("Все игроки в фиксированных парах — добавляем "+limit+" раунд(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
+    }
     for(let i=0;i<limit;i++){
-      const rd=buildSingleRound(players, usedSet, DB.playCount, courts);
+      const rd=buildSingleRound(players, lockedPairs, usedSet, DB.playCount, courts);
       if(!rd){ stopped=true; break; }
-      rd.games.forEach(g=>{ usedSet.add(pkey(g.t1[0],g.t1[1])); usedSet.add(pkey(g.t2[0],g.t2[1])); });
+      rd.games.forEach(g=>{
+        // в usedSet добавляем ТОЛЬКО случайные пары (фиксированные могут повторяться)
+        if(!g.t1Fixed) usedSet.add(pkey(g.t1[0],g.t1[1]));
+        if(!g.t2Fixed) usedSet.add(pkey(g.t2[0],g.t2[1]));
+      });
       rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
       DB.rounds.push(rd); added++;
     }
@@ -676,11 +872,22 @@ function addRounds(count, toMax){
     const L1=parseList(DB.listM), L2=parseList(DB.listW);
     if(L1.length<2||L2.length<2){ showErr("В каждом списке минимум 2 человека."); return; }
     if(L1.length+L2.length>16){ showErr("Максимум 16 игроков суммарно."); return; }
-    const limit=toMax?999:count;
+    if(K > courts*2){
+      showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
+      return;
+    }
+    const allLocked = (K === Math.min(L1.length, L2.length)) && (K*2 === L1.length + L2.length);
+    const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
+    if(toMax && allLocked){
+      showErr("Все игроки в фиксированных парах — добавляем "+limit+" раунд(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
+    }
     for(let i=0;i<limit;i++){
-      const rd=buildDoubleRound(L1,L2,usedSet,DB.playCount,courts);
+      const rd=buildDoubleRound(L1,L2,lockedPairs,usedSet,DB.playCount,courts);
       if(!rd){ stopped=true; break; }
-      rd.games.forEach(g=>{ usedSet.add(dkey(g.t1[0],g.t1[1])); usedSet.add(dkey(g.t2[0],g.t2[1])); });
+      rd.games.forEach(g=>{
+        if(!g.t1Fixed) usedSet.add(dkey(g.t1[0],g.t1[1]));
+        if(!g.t2Fixed) usedSet.add(dkey(g.t2[0],g.t2[1]));
+      });
       rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
       DB.rounds.push(rd); added++;
     }
@@ -688,9 +895,9 @@ function addRounds(count, toMax){
   DB.usedPairs=[...usedSet];
   saveDB();
   renderAll();
-  if(added===0){ showErr("Новых раундов нет — все возможные пары уже сыграны."); }
+  if(added===0){ showErr("Новых раундов нет — все возможные пары уже сыграны или фиксированные пары не помещаются на корты."); }
   else if(stopped && toMax){ /* fine */ }
-  else if(stopped){ showErr("Добавлено "+added+" — дальше пары начали бы повторяться."); }
+  else if(stopped){ showErr("Добавлено "+added+" — дальше случайные пары начали бы повторяться."); }
   $("#out").scrollIntoView({behavior:"smooth",block:"start"});
 }
 
@@ -751,10 +958,12 @@ function renderStandings(){
 function renderRounds(){
   const out=$("#out");
   if(!DB.rounds.length){ out.innerHTML=`<p class="hint" style="text-align:center;color:var(--navy-soft)">Пока нет раундов. Заполните список и нажмите «Добавить раунд(ы)».</p>`; return; }
+  const totalFixed = DB.rounds.length ? (DB.rounds[0].games||[]).reduce((n,g)=>n+(g.t1Fixed?1:0)+(g.t2Fixed?1:0),0) : 0;
   let html=`<div class="meta">
     <span class="pill">режим: <b>${DB.mode==="single"?"один список":"микст"}</b></span>
     <span class="pill">раундов: <b>${DB.rounds.length}</b></span>
     <span class="pill">кортов: <b>${DB.courts}</b></span>
+    ${totalFixed?`<span class="pill">фикс. пар: <b>${totalFixed}</b></span>`:""}
   </div>`;
   DB.rounds.forEach((rd,ri)=>{
     const rest=rd.resting&&rd.resting.length?`Отдыхают: ${rd.resting.map(esc).join(", ")}`:"Все играют";
@@ -764,12 +973,15 @@ function renderRounds(){
         <div class="resting ${rd.resting&&rd.resting.length?"":"none"}">${rest}</div>
       </div><div class="games">`;
     rd.games.forEach((g,gi)=>{
-      html+=`<div class="game">
+      const hasFixed = g.t1Fixed || g.t2Fixed;
+      const t1Lock = g.t1Fixed?'<span class="pair-locked">● фикс.</span>':'';
+      const t2Lock = g.t2Fixed?'<span class="pair-locked">фикс. ●</span>':'';
+      html+=`<div class="game${hasFixed?' has-fixed':''}">
         <div class="court"><span>Корт ${g.court}</span><b>Игра ${gi+1}</b></div>
         <div class="vs-row">
-          <div class="team"><span class="pl">${esc(g.t1[0])}</span><span class="pl">${esc(g.t1[1])}</span></div>
+          <div class="team">${t1Lock}<span class="pl">${esc(g.t1[0])}</span><span class="pl">${esc(g.t1[1])}</span></div>
           <div class="vs">VS</div>
-          <div class="team" style="text-align:right"><span class="pl">${esc(g.t2[0])}</span><span class="pl">${esc(g.t2[1])}</span></div>
+          <div class="team" style="text-align:right">${t2Lock}<span class="pl">${esc(g.t2[0])}</span><span class="pl">${esc(g.t2[1])}</span></div>
         </div>
         <div class="score">
           <input class="mono" inputmode="numeric" maxlength="2" value="${esc(g.sa)}" data-r="${ri}" data-g="${gi}" data-side="a">
@@ -793,6 +1005,72 @@ function renderRounds(){
 
 function renderAll(){ renderStandings(); renderRounds(); }
 
+/* ===================== fixed pairs UI ===================== */
+function renderFixedPairs(){
+  const sec = $("#fixedPairsSection");
+  if(!sec) return;
+  const sel1 = $("#fp1"), sel2 = $("#fp2");
+  const listBox = $("#fpList");
+  const modeInfo = $("#fpModeInfo");
+
+  // отображаем только валидные пары (без модификации DB — иначе во время ввода имени пары пропадут)
+  const valid = getValidFixedPairs();
+
+  // занятые игроки
+  const usedSingle = new Set();
+  const used1 = new Set(), used2 = new Set();
+  valid.forEach(([a,b]) => {
+    usedSingle.add(a); usedSingle.add(b);
+    used1.add(a); used2.add(b);
+  });
+
+  if(DB.mode === "single"){
+    const players = parseList(DB.listA);
+    modeInfo.textContent = players.length ? `· из ${players.length} игроков` : "";
+    const avail = players.filter(p => !usedSingle.has(p));
+    const mkOpts = (placeholder) =>
+      `<option value="">${placeholder}</option>` +
+      avail.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+    sel1.innerHTML = mkOpts("— игрок 1 —");
+    sel2.innerHTML = mkOpts("— игрок 2 —");
+    const enough = avail.length >= 2;
+    sel1.disabled = !enough; sel2.disabled = !enough;
+    $("#fpAddBtn").disabled = !enough;
+  } else {
+    const L1 = parseList(DB.listM);
+    const L2 = parseList(DB.listW);
+    modeInfo.textContent = (L1.length||L2.length) ? `· из ${L1.length}+${L2.length} игроков (кросс)` : "";
+    const avail1 = L1.filter(p => !used1.has(p));
+    const avail2 = L2.filter(p => !used2.has(p));
+    sel1.innerHTML = `<option value="">— из списка 1 —</option>` +
+      avail1.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+    sel2.innerHTML = `<option value="">— из списка 2 —</option>` +
+      avail2.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+    const enough = avail1.length>=1 && avail2.length>=1;
+    sel1.disabled = !enough; sel2.disabled = !enough;
+    $("#fpAddBtn").disabled = !enough;
+  }
+
+  // список текущих пар
+  if(valid.length === 0){
+    listBox.innerHTML = '<p class="fp-empty">Пока нет фиксированных пар. Все игроки разбиваются на пары случайным образом.</p>';
+  } else {
+    listBox.innerHTML = valid.map((pair) =>
+      `<span class="fp-chip">${esc(pair[0])} <span class="plus-sm">+</span> ${esc(pair[1])} <button data-a="${esc(pair[0])}" data-b="${esc(pair[1])}" type="button" aria-label="Удалить пару" title="Удалить пару">×</button></span>`
+    ).join("");
+    listBox.querySelectorAll(".fp-chip button").forEach(btn => {
+      btn.onclick = () => {
+        const a = btn.dataset.a, b = btn.dataset.b;
+        // удаляем по содержимому (индексы могут разойтись из-за отфильтрованных пар)
+        DB.fixedPairs = DB.fixedPairs.filter(p => !(p[0]===a && p[1]===b));
+        saveDB();
+        renderFixedPairs();
+        showErr("");
+      };
+    });
+  }
+}
+
 /* ===================== inputs <-> DB ===================== */
 function syncInputsToDB(){
   DB.listA=$("#listA").value;
@@ -810,16 +1088,20 @@ function applyDBToInputs(){
   // courts
   document.querySelectorAll("#courtsSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.c===DB.courts));
   if(typeof updateCounts==="function") updateCounts();
+  if(typeof renderFixedPairs==="function") renderFixedPairs();
 }
 
 /* ===================== events ===================== */
 document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click",()=>{
-    if(DB.rounds.length && t.dataset.mode!==DB.mode){
-      if(!confirm("Смена режима сбросит текущий турнир. Продолжить?")) return;
+    if(t.dataset.mode===DB.mode) return;
+    if(DB.rounds.length){
+      if(!confirm("Смена режима сбросит текущий турнир (раунды, счёт, фикс. пары). Продолжить?")) return;
       DB.rounds=[]; DB.usedPairs=[]; DB.playCount={};
     }
     DB.mode=t.dataset.mode;
+    // фикс. пары валидны только для одного режима — очищаем при переключении
+    cleanupFixedPairs();
     applyDBToInputs(); saveDB(); renderAll(); showErr("");
   });
 });
@@ -854,8 +1136,31 @@ function plural(n,one,few,many){
 }
 
 ["listA","listM","listW"].forEach(id=>{
-  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); clearTimeout(flashT); });
-  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); saveDB(); });
+  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); renderFixedPairs(); clearTimeout(flashT); });
+  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); cleanupFixedPairs(); saveDB(); renderFixedPairs(); });
+});
+
+/* ----- fixed pairs handlers ----- */
+$("#fpAddBtn").addEventListener("click",()=>{
+  const a = $("#fp1").value;
+  const b = $("#fp2").value;
+  if(!a || !b){ showErr("Выберите двух игроков для фиксированной пары."); return; }
+  if(DB.mode==="single" && a===b){ showErr("Выберите разных игроков."); return; }
+  // проверяем, что никто из них уже не в фикс-паре
+  const used = new Set();
+  const used1 = new Set(), used2 = new Set();
+  DB.fixedPairs.forEach(([x,y])=>{used.add(x);used.add(y);used1.add(x);used2.add(y);});
+  if(DB.mode==="single"){
+    if(used.has(a) || used.has(b)){ showErr("Один из выбранных игроков уже в фиксированной паре."); return; }
+    DB.fixedPairs.push([a,b]);
+  } else {
+    if(used1.has(a)){ showErr("Игрок «"+a+"» уже в фиксированной паре."); return; }
+    if(used2.has(b)){ showErr("Игрок «"+b+"» уже в фиксированной паре."); return; }
+    DB.fixedPairs.push([a,b]);
+  }
+  saveDB();
+  renderFixedPairs();
+  showErr("");
 });
 const roundsInput=$("#rounds");
 $("#rMinus").onclick=()=>roundsInput.value=Math.max(1,(+roundsInput.value||1)-1);
@@ -866,7 +1171,7 @@ $("#addBtn").onclick=()=>addRounds(Math.max(1,+roundsInput.value||1),false);
 $("#maxBtn").onclick=()=>addRounds(0,true);
 $("#printBtn").onclick=()=>window.print();
 $("#resetBtn").onclick=()=>{
-  if(!confirm("Сбросить турнир? Списки игроков останутся, но все раунды и счета будут удалены.")) return;
+  if(!confirm("Сбросить турнир? Списки игроков и фиксированные пары останутся, но все раунды и счета будут удалены.")) return;
   DB.rounds=[]; DB.usedPairs=[]; DB.playCount={};
   saveDB(); renderAll(); showErr("");
 };
