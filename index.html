@@ -692,11 +692,27 @@ function tryPairUp(active, usedSet){
   return bt(active.slice())?result:null;
 }
 
+/* Все сочетания из массива arr длины k (генератор) */
+function* combinations(arr, k){
+  if(k === 0){ yield []; return; }
+  if(k > arr.length) return;
+  for(let i = 0; i <= arr.length - k; i++){
+    for(const tail of combinations(arr.slice(i+1), k-1)){
+      yield [arr[i], ...tail];
+    }
+  }
+}
+
 /* Build a round with optional "locked" (fixed) pairs.
    Locked pairs always play together; they don't go into usedSet
    (they're meant to repeat). Random pool fills the remaining slots.
    All pairs (locked + random) are then shuffled to randomize who
-   plays on which court and against whom. */
+   plays on which court and against whom.
+
+   Алгоритм выбора отдыхающих: перебираем ВСЕ возможные комбинации resters,
+   отсортированные по сумме playCount (по убыванию — отдыхают те, кто играл
+   больше). Это гарантирует нахождение валидного раунда, если он существует,
+   и одновременно сохраняет балансировку нагрузки. */
 function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
   const K = lockedPairs.length;
   if(K > courts*2) return null; // не хватает кортов для всех фиксированных пар
@@ -714,25 +730,41 @@ function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
   const minGames = Math.ceil(K/2); // нужно хотя бы столько кортов, чтобы все locked играли
   if(maxGames < minGames || maxGames < 1) return null;
 
+  const lockedKeySet = new Set(lockedPairs.map(p => pkey(p[0],p[1])));
+
   // try games from max down to min — пытаемся вместить максимум
-  for(let games = maxGames; games >= Math.max(1,minGames); games--){
+  for(let games = maxGames; games >= Math.max(1, minGames); games--){
     const seats = games*4;
     const randomSeats = seats - 2*K;
     if(randomSeats < 0 || randomSeats > Rn) continue;
     const restN = Rn - randomSeats;
 
-    for(let attempt=0; attempt<400; attempt++){
-      const pool = shuffle(randomPool.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
-      const restSet = new Set(pool.slice(0,restN));
-      const active = shuffle(randomPool.filter(p=>!restSet.has(p)));
-      const pairs = randomSeats===0 ? [] : tryPairUp(active, usedSet);
+    // Перебираем все возможные множества отдыхающих, упорядоченные по предпочтению.
+    // Предпочтение = сумма playCount отдыхающих (больше = лучше — отдыхают те, кто играл больше).
+    // Случайный шум разрывает ничьи, чтобы при равных counts выбор каждый раз новый.
+    let resterSets;
+    if(restN === 0){
+      resterSets = [[]];
+    } else {
+      resterSets = Array.from(combinations(randomPool, restN));
+      const scored = resterSets.map(s => ({
+        rest: s,
+        score: s.reduce((sum,p) => sum + (playCount[p]||0), 0) + Math.random()*0.5
+      }));
+      scored.sort((a,b) => b.score - a.score);
+      resterSets = scored.map(x => x.rest);
+    }
+
+    for(const restList of resterSets){
+      const restSet = new Set(restList);
+      const active = shuffle(randomPool.filter(p => !restSet.has(p)));
+      const pairs = randomSeats === 0 ? [] : tryPairUp(active, usedSet);
       if(pairs){
-        // объединяем locked + random, перемешиваем порядок (рандомная расстановка по кортам/матчам)
+        // объединяем locked + random, перемешиваем (рандомная расстановка по кортам/матчам)
         const allPairs = shuffle([
           ...lockedPairs.map(p => [p[0], p[1]]),
           ...pairs
         ]);
-        const lockedKeySet = new Set(lockedPairs.map(p => pkey(p[0],p[1])));
         const gamesArr = [];
         for(let i=0; i<allPairs.length; i+=2){
           const t1=allPairs[i], t2=allPairs[i+1];
@@ -745,9 +777,9 @@ function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
           });
         }
         return {
-          games:gamesArr,
-          active:[...lockedSet, ...active],
-          resting:[...restSet]
+          games: gamesArr,
+          active: [...lockedSet, ...active],
+          resting: [...restList]
         };
       }
     }
@@ -788,30 +820,50 @@ function buildDoubleRound(L1, L2, lockedPairs, usedSet, playCount, courts){
 
   // максимально возможное число случайных кросс-пар
   const maxR = Math.min(remL1.length, remL2.length);
-  // общее кол-во пар (K+r) ≤ courts*2 и чётно (каждые 2 пары = 1 игра)
   let r = Math.min(maxR, courts*2 - K);
   if((K + r) % 2 !== 0) r--;
   if(r < 0) return null;
 
   const minGames = Math.ceil(K/2);
+  const lockedKeySet = new Set(lockedPairs.map(p => dkey(p[0],p[1])));
 
   // пробуем уменьшать r, если не получается собрать
   for(; r >= 0 && (K + r) % 2 === 0; r -= 2){
     const games = (K + r) / 2;
     if(games < minGames || games < 1) break;
 
-    for(let attempt=0; attempt<500; attempt++){
-      const m = shuffle(remL1.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
-      const w = shuffle(remL2.slice()).sort((x,y)=>(playCount[y]||0)-(playCount[x]||0));
-      const useM = shuffle(m.slice(0,r));
-      const useW = shuffle(w.slice(0,r));
-      const pairs = r===0 ? [] : matchCross(useM, useW, usedSet);
+    // перебираем все комбинации (useM из remL1) × (useW из remL2)
+    // упорядоченно по предпочтению: отдыхающие должны быть теми, кто больше играл
+    const useMList = Array.from(combinations(remL1, r));
+    const useWList = Array.from(combinations(remL2, r));
+
+    const combos = [];
+    for(const useM of useMList){
+      const setM = new Set(useM);
+      // сумма playCount отдыхающих из L1
+      let restScoreM = 0;
+      for(const p of remL1) if(!setM.has(p)) restScoreM += (playCount[p]||0);
+      for(const useW of useWList){
+        const setW = new Set(useW);
+        let restScoreW = 0;
+        for(const p of remL2) if(!setW.has(p)) restScoreW += (playCount[p]||0);
+        combos.push({
+          useM, useW,
+          score: restScoreM + restScoreW + Math.random()*0.5
+        });
+      }
+    }
+    combos.sort((a,b) => b.score - a.score);
+
+    for(const c of combos){
+      const useM = shuffle(c.useM.slice());
+      const useW = shuffle(c.useW.slice());
+      const pairs = r === 0 ? [] : matchCross(useM, useW, usedSet);
       if(pairs){
         const allPairs = shuffle([
           ...lockedPairs.map(p => [p[0], p[1]]),
           ...pairs
         ]);
-        const lockedKeySet = new Set(lockedPairs.map(p => dkey(p[0],p[1])));
         const gamesArr = [];
         for(let i=0; i<allPairs.length; i+=2){
           const t1=allPairs[i], t2=allPairs[i+1];
@@ -826,7 +878,7 @@ function buildDoubleRound(L1, L2, lockedPairs, usedSet, playCount, courts){
         const active = [...lockedFromL1, ...lockedFromL2, ...useM, ...useW];
         const activeSet = new Set(active);
         const resting = [...L1, ...L2].filter(p => !activeSet.has(p));
-        return { games:gamesArr, active, resting };
+        return { games: gamesArr, active, resting };
       }
     }
   }
