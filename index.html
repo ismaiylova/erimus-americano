@@ -406,6 +406,7 @@
     <button class="tab active" data-mode="single" role="tab">Один список</button>
     <button class="tab" data-mode="double" role="tab">Два списка (микст)</button>
     <button class="tab" data-mode="pairs" role="tab">Готовые пары</button>
+    <button class="tab" data-mode="restricted" role="tab">С ограничениями</button>
     <button class="tab" data-mode="cascade" role="tab">Каскад</button>
   </div>
 
@@ -452,6 +453,28 @@
       </div>
       <textarea id="listP" placeholder="Аня + Борис&#10;Вера + Глеб&#10;Дина + Егор&#10;Жанна + Захар"></textarea>
       <div class="count-summary" id="countPSummary">Всего игроков: 0</div>
+    </div>
+
+    <div id="restricted-input" style="display:none">
+      <h2>Американо с ограничениями</h2>
+      <p class="hint">Партнёры и соперники — случайные, как в обычном американо, но игроки из списка 1 никогда не окажутся партнёрами друг с другом (только с кем-то из списка 2). Игроки из списка 2 могут быть партнёрами с любыми. Без повторов пар между раундами, максимум 16 игроков.</p>
+      <div class="twocol">
+        <div>
+          <div class="fld-row">
+            <label class="fld" for="listR">Список 1 — только в разных парах</label>
+            <span class="counter" id="countR">0</span>
+          </div>
+          <textarea id="listR" placeholder="Аня&#10;Борис&#10;Вера"></textarea>
+        </div>
+        <div>
+          <div class="fld-row">
+            <label class="fld" for="listF">Список 2 — свободные партнёры</label>
+            <span class="counter" id="countF">0</span>
+          </div>
+          <textarea id="listF" placeholder="Глеб&#10;Дина&#10;Егор&#10;Жанна&#10;Захар"></textarea>
+        </div>
+      </div>
+      <div class="count-summary" id="countRestricted">Всего 0</div>
     </div>
 
     <div class="fixed-pairs-section" id="fixedPairsSection">
@@ -537,6 +560,7 @@ function blankState(){
     mode:"single",
     courts:2,
     listA:"", listM:"", listW:"", listP:"",
+    listR:"", listF:"",
     fixedPairs:[],
     rounds:[],
     usedPairs:[],
@@ -569,6 +593,9 @@ function migrateState(d){
   // pairs mode fields added later
   if(d && typeof d.listP !== "string") d.listP = "";
   if(d && !Array.isArray(d.usedMatchups)) d.usedMatchups = [];
+  // restricted mode fields added later
+  if(d && typeof d.listR !== "string") d.listR = "";
+  if(d && typeof d.listF !== "string") d.listF = "";
   // cascade added later
   if(d && !d.cascade) d.cascade = blankCascade();
   // ensure cascade sub-objects have all fields (newer additions: courts, ABE.inputStrong/Weak)
@@ -842,6 +869,8 @@ function showErr(m){ const e=$("#err"); if(!m){e.classList.remove("show");e.text
 /* Возвращает фиксированные пары, оставляя только те, что валидны для текущего режима/списков */
 function getValidFixedPairs(){
   if(!Array.isArray(DB.fixedPairs)) return [];
+  // В режимах, где фикс. пары не поддерживаются в интерфейсе, отдаём пустой список.
+  if(DB.mode==="pairs" || DB.mode==="restricted") return [];
   if(DB.mode==="single"){
     const players = new Set(parseList(DB.listA));
     const used = new Set();
@@ -1157,7 +1186,22 @@ function buildPairsRound(pairs, usedMatchSet, playCount, courts){
   return null;
 }
 
-/* ===================== add rounds ===================== */
+/* === Режим «с ограничениями» ===
+   listR — игроки, которые НЕ могут быть партнёрами друг с другом.
+   listF — свободные игроки: могут быть партнёрами с кем угодно (в т.ч. между собой).
+
+   Алгоритм: расширяем набор «уже сыгранных» партнёрств запретами R×R
+   (все возможные пары внутри listR добавляются в constrained-set) и
+   переиспользуем buildSingleRound на объединённом списке игроков без фикс. пар.
+   Настоящее множество сыгранных пар (без служебных R×R запретов) отслеживаем
+   отдельно и сохраняем в DB.usedPairs — это позволяет корректно пересчитывать
+   ограничения, если пользователь позже поменяет состав списков. */
+function buildRestrictedRound(listR, listF, constrainedSet, playCount, courts){
+  const players = [...listR, ...listF];
+  // Никаких locked pairs — партнёров тасуем случайно, как в single-режиме.
+  return buildSingleRound(players, [], constrainedSet, playCount, courts);
+}
+
 function addRounds(count, toMax){
   showErr("");
   syncInputsToDB();
@@ -1186,6 +1230,50 @@ function addRounds(count, toMax){
       DB.rounds.push(rd); added++;
     }
     DB.usedMatchups = [...usedMatchSet];
+  } else if(DB.mode==="restricted"){
+    // Американо с ограничениями: два списка, R×R партнёрства запрещены.
+    const listR = parseList(DB.listR);
+    const listF = parseList(DB.listF);
+    const total = listR.length + listF.length;
+    // Дубликаты между списками — ошибка
+    const rSet = new Set(listR);
+    for(const p of listF){
+      if(rSet.has(p)){ showErr("«"+p+"» есть в обоих списках."); return; }
+    }
+    if(total < 4){ showErr("Нужно минимум 4 игрока (в двух списках суммарно)."); return; }
+    if(total > 16){ showErr("Максимум 16 игроков."); return; }
+    if(listR.length === 0){
+      showErr("Список 1 пуст — тогда это обычное американо, используйте вкладку «Один список».");
+      return;
+    }
+    // Если |listR| > |listF|, раунд всё равно возможен: часть «ограниченных» будет
+    // отдыхать. Проверять жёстко не нужно — buildSingleRound сам подберёт состав.
+
+    // usedSet — реально сыгранные пары (сохраняются в DB).
+    // constrained — то, что запрещено в этом раунде: сыгранные + все R×R.
+    const usedSet = new Set(DB.usedPairs);
+    const constrained = new Set(usedSet);
+    for(let i=0; i<listR.length; i++){
+      for(let j=i+1; j<listR.length; j++){
+        constrained.add(pkey(listR[i], listR[j]));
+      }
+    }
+    const limit = toMax ? 999 : count;
+    for(let i=0; i<limit; i++){
+      const rd = buildRestrictedRound(listR, listF, constrained, DB.playCount, courts);
+      if(!rd){ stopped=true; break; }
+      rd.games.forEach(g=>{
+        const k1 = pkey(g.t1[0], g.t1[1]);
+        const k2 = pkey(g.t2[0], g.t2[1]);
+        usedSet.add(k1); usedSet.add(k2);
+        // добавляем в constrained тоже, чтобы следующие итерации не повторили
+        constrained.add(k1); constrained.add(k2);
+      });
+      rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
+      DB.rounds.push(rd); added++;
+    }
+    // Сохраняем только реально сыгранные пары; R×R запреты вычисляются динамически.
+    DB.usedPairs = [...usedSet];
   } else {
     const usedSet=new Set(DB.usedPairs);
     const lockedPairs = getValidFixedPairs();
@@ -1244,9 +1332,11 @@ function addRounds(count, toMax){
   saveDB();
   renderAll();
   if(added===0){
-    showErr(DB.mode==="pairs"
-      ? "Новых раундов нет — все возможные матчи между парами уже сыграны."
-      : "Новых раундов нет — все возможные пары уже сыграны или фиксированные пары не помещаются на корты.");
+    let msg;
+    if(DB.mode==="pairs") msg = "Новых раундов нет — все возможные матчи между парами уже сыграны.";
+    else if(DB.mode==="restricted") msg = "Новых раундов нет — все допустимые пары (с учётом ограничений) уже сыграны.";
+    else msg = "Новых раундов нет — все возможные пары уже сыграны или фиксированные пары не помещаются на корты.";
+    showErr(msg);
   } else if(stopped && toMax){ /* fine */ }
   else if(stopped){
     showErr("Добавлено "+added+" — дальше "+(DB.mode==="pairs"?"матчи":"случайные пары")+" начали бы повторяться.");
@@ -1312,12 +1402,21 @@ function renderRounds(){
   const out=$("#out");
   if(!DB.rounds.length){ out.innerHTML=`<p class="hint" style="text-align:center;color:var(--navy-soft)">Пока нет раундов. Заполните список и нажмите «Добавить раунд(ы)».</p>`; return; }
   const totalFixed = DB.rounds.length ? (DB.rounds[0].games||[]).reduce((n,g)=>n+(g.t1Fixed?1:0)+(g.t2Fixed?1:0),0) : 0;
-  const modeName = DB.mode==="single" ? "один список" : DB.mode==="double" ? "микст" : "готовые пары";
-  // в pairs-режиме показываем число пар вместо числа фикс. пар
+  const modeName =
+    DB.mode==="single"     ? "один список" :
+    DB.mode==="double"     ? "микст" :
+    DB.mode==="pairs"      ? "готовые пары" :
+    DB.mode==="restricted" ? "с ограничениями" :
+    DB.mode;
+  // в pairs-режиме показываем число пар вместо числа фикс. пар; в restricted — раскладку R/F
   let extraPill = "";
   if(DB.mode==="pairs"){
     const parsed = parsePairList(DB.listP);
     extraPill = `<span class="pill">пар: <b>${parsed.pairs.length}</b></span>`;
+  } else if(DB.mode==="restricted"){
+    const r = parseList(DB.listR).length;
+    const f = parseList(DB.listF).length;
+    extraPill = `<span class="pill">огранич./свободн.: <b>${r}/${f}</b></span>`;
   } else if(totalFixed){
     extraPill = `<span class="pill">фикс. пар: <b>${totalFixed}</b></span>`;
   }
@@ -2552,12 +2651,16 @@ function syncInputsToDB(){
   DB.listM=$("#listM").value;
   DB.listW=$("#listW").value;
   DB.listP=$("#listP").value;
+  DB.listR=$("#listR").value;
+  DB.listF=$("#listF").value;
 }
 function applyDBToInputs(){
   $("#listA").value=DB.listA||"";
   $("#listM").value=DB.listM||"";
   $("#listW").value=DB.listW||"";
   $("#listP").value=DB.listP||"";
+  $("#listR").value=DB.listR||"";
+  $("#listF").value=DB.listF||"";
   // mode tabs
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.mode===DB.mode));
   // normal vs cascade containers
@@ -2569,12 +2672,13 @@ function applyDBToInputs(){
     $("#single-input").style.display=DB.mode==="single"?"block":"none";
     $("#double-input").style.display=DB.mode==="double"?"block":"none";
     $("#pairs-input").style.display=DB.mode==="pairs"?"block":"none";
-    // фикс. пары не нужны в pairs-режиме (там всё уже фиксировано)
-    $("#fixedPairsSection").style.display=DB.mode==="pairs"?"none":"block";
+    $("#restricted-input").style.display=DB.mode==="restricted"?"block":"none";
+    // фикс. пары не нужны в pairs/restricted-режимах (в pairs всё фиксировано, в restricted — свои правила)
+    $("#fixedPairsSection").style.display=(DB.mode==="pairs"||DB.mode==="restricted")?"none":"block";
     // courts
     document.querySelectorAll("#courtsSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.c===DB.courts));
     if(typeof updateCounts==="function") updateCounts();
-    if(typeof renderFixedPairs==="function" && DB.mode!=="pairs") renderFixedPairs();
+    if(typeof renderFixedPairs==="function" && DB.mode!=="pairs" && DB.mode!=="restricted") renderFixedPairs();
   } else {
     // Каскад — отрисовываем его представление
     if(typeof renderCascade === "function") renderCascade();
@@ -2632,6 +2736,30 @@ function updateCounts(){
   } else {
     sumEl.innerHTML = `Всего игроков: <b>${playersN}</b>`;
   }
+
+  // restricted mode
+  const rList = parseList($("#listR").value);
+  const fList = parseList($("#listF").value);
+  const r = rList.length, f = fList.length;
+  const rTotal = r + f;
+  $("#countR").textContent = String(r);
+  $("#countF").textContent = String(f);
+  const dupSet = new Set(rList);
+  let hasDup = false;
+  for(const p of fList){ if(dupSet.has(p)){ hasDup = true; break; } }
+  const cRestricted = $("#countRestricted");
+  let restrictedMsg = `Всего <b>${rTotal}</b>`;
+  if(hasDup){
+    restrictedMsg += ` · <span style="color:var(--bad)">есть игроки в обоих списках</span>`;
+  } else if(rTotal > 16){
+    restrictedMsg += ` · <span style="color:var(--bad)">больше 16 — часть не сыграет</span>`;
+  } else if(r > 0 && f < r){
+    restrictedMsg += ` · <span style="color:var(--accent)">свободных меньше ограниченных — часть игроков из списка 1 будет чаще отдыхать</span>`;
+  }
+  cRestricted.innerHTML = restrictedMsg;
+  const warnRestricted = hasDup || rTotal > 16;
+  $("#countR").classList.toggle("warn", warnRestricted);
+  $("#countF").classList.toggle("warn", warnRestricted);
 }
 function plural(n,one,few,many){
   const n10=n%10, n100=n%100;
@@ -2642,9 +2770,9 @@ function plural(n,one,few,many){
   return n+" "+w;
 }
 
-["listA","listM","listW","listP"].forEach(id=>{
-  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); if(DB.mode!=="pairs") renderFixedPairs(); clearTimeout(flashT); });
-  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); cleanupFixedPairs(); saveDB(); if(DB.mode!=="pairs") renderFixedPairs(); });
+["listA","listM","listW","listP","listR","listF"].forEach(id=>{
+  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); if(DB.mode!=="pairs" && DB.mode!=="restricted") renderFixedPairs(); clearTimeout(flashT); });
+  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); cleanupFixedPairs(); saveDB(); if(DB.mode!=="pairs" && DB.mode!=="restricted") renderFixedPairs(); });
 });
 
 /* ----- fixed pairs handlers ----- */
