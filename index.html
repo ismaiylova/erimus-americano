@@ -184,10 +184,15 @@
   .team{display:flex;flex-direction:column;gap:3px}
   .team .pl{font-weight:600;font-size:14.5px;line-height:1.25}
   .vs{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--accent);font-weight:600;text-align:center}
-  .score{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line-strong)}
+  .score{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line-strong)}
+  .score .set{display:flex;align-items:center;justify-content:center;gap:8px}
+  .score .set-label{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--navy-soft);letter-spacing:.08em;text-transform:uppercase;min-width:44px;text-align:right;font-weight:600}
   .score input{width:48px;height:40px;text-align:center;background:#fffdf9;border:1px solid var(--line-strong);border-radius:8px;color:var(--navy);font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:600;outline:none}
   .score input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,95,208,.14)}
   .score .colon{color:var(--navy-soft);font-weight:700}
+  .cycle-badge{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--accent);background:rgba(200,119,47,.1);border:1px solid rgba(200,119,47,.28);padding:3px 9px;border-radius:999px;font-weight:600;letter-spacing:.04em;margin-left:8px}
+  .game.solo .vs-row{grid-template-columns:1fr auto 1fr}
+  .game.solo .team .pl{font-size:15.5px}
 
   .section-label{font-family:"Fraunces",serif;font-size:15px;font-weight:700;color:var(--navy);margin:24px 0 10px;display:flex;align-items:center;gap:10px}
   .section-label::after{content:"";flex:1;height:1px;background:var(--line)}
@@ -407,6 +412,7 @@
     <button class="tab" data-mode="double" role="tab">Два списка (микст)</button>
     <button class="tab" data-mode="pairs" role="tab">Готовые пары</button>
     <button class="tab" data-mode="restricted" role="tab">С ограничениями</button>
+    <button class="tab" data-mode="solo" role="tab">Одиночки</button>
     <button class="tab" data-mode="cascade" role="tab">Каскад</button>
   </div>
 
@@ -477,6 +483,17 @@
       <div class="count-summary" id="countRestricted">Всего 0</div>
     </div>
 
+    <div id="solo-input" style="display:none">
+      <h2>Одиночки (1×1)</h2>
+      <p class="hint">Матчи один на один без партнёров. По одному имени в строке. Максимум 16. Каждый корт занимают 2 игрока, поэтому за раунд играет вдвое меньше людей, чем в парном режиме.</p>
+      <div class="fld-row">
+        <label class="fld" for="listS">Игроки</label>
+        <span class="counter" id="countS">0 игроков</span>
+      </div>
+      <textarea id="listS" placeholder="Аня&#10;Борис&#10;Вера&#10;Глеб&#10;Дина&#10;Егор"></textarea>
+      <div class="count-summary" id="countSSummary">Возможных матчей: 0</div>
+    </div>
+
     <div class="fixed-pairs-section" id="fixedPairsSection">
       <div class="fp-head">
         <h3>Фиксированные пары <span class="fp-mode" id="fpModeInfo"></span></h3>
@@ -499,6 +516,13 @@
           <button data-c="2" class="on">2</button>
           <button data-c="3">3</button>
           <button data-c="4">4</button>
+        </div>
+      </div>
+      <div class="ctrl">
+        <small>Формат матча</small>
+        <div class="seg" id="bestOfSeg">
+          <button data-b="1" class="on">1 партия</button>
+          <button data-b="2">2 партии</button>
         </div>
       </div>
       <div class="ctrl">
@@ -559,8 +583,11 @@ function blankState(){
   return {
     mode:"single",
     courts:2,
+    bestOf:1,           // 1 или 2 — число партий в матче
+    cycle:1,            // текущий круг (увеличивается, когда все комбинации сыграны)
     listA:"", listM:"", listW:"", listP:"",
     listR:"", listF:"",
+    listS:"",           // список игроков для режима одиночек
     fixedPairs:[],
     rounds:[],
     usedPairs:[],
@@ -596,6 +623,26 @@ function migrateState(d){
   // restricted mode fields added later
   if(d && typeof d.listR !== "string") d.listR = "";
   if(d && typeof d.listF !== "string") d.listF = "";
+  // solo mode + best-of + auto-repeat added later
+  if(d && typeof d.listS !== "string") d.listS = "";
+  if(d && !(d.bestOf === 1 || d.bestOf === 2)) d.bestOf = 1;
+  if(d && !(typeof d.cycle === "number" && d.cycle >= 1)) d.cycle = 1;
+  // мигрируем игры: sa/sb → sets: [{sa, sb}]; проставляем cycle раундам
+  if(d && Array.isArray(d.rounds)){
+    d.rounds.forEach(rd => {
+      if(rd && !(typeof rd.cycle === "number" && rd.cycle >= 1)) rd.cycle = 1;
+      if(rd && Array.isArray(rd.games)){
+        rd.games.forEach(g => {
+          if(g && !Array.isArray(g.sets)){
+            const sa = (g && typeof g.sa === "string") ? g.sa : "";
+            const sb = (g && typeof g.sb === "string") ? g.sb : "";
+            g.sets = [{ sa, sb }];
+            // sa/sb оставляем — удалим при сохранении для чистоты
+          }
+        });
+      }
+    });
+  }
   // cascade added later
   if(d && !d.cascade) d.cascade = blankCascade();
   // ensure cascade sub-objects have all fields (newer additions: courts, ABE.inputStrong/Weak)
@@ -870,7 +917,7 @@ function showErr(m){ const e=$("#err"); if(!m){e.classList.remove("show");e.text
 function getValidFixedPairs(){
   if(!Array.isArray(DB.fixedPairs)) return [];
   // В режимах, где фикс. пары не поддерживаются в интерфейсе, отдаём пустой список.
-  if(DB.mode==="pairs" || DB.mode==="restricted") return [];
+  if(DB.mode==="pairs" || DB.mode==="restricted" || DB.mode==="solo") return [];
   if(DB.mode==="single"){
     const players = new Set(parseList(DB.listA));
     const used = new Set();
@@ -908,7 +955,100 @@ function cleanupFixedPairs(){
   DB.fixedPairs = getValidFixedPairs();
 }
 
+/* ===================== helpers ===================== */
+/* Пустой массив партий для новой игры (длина = DB.bestOf) */
+function mkEmptySets(){
+  const n = (DB.bestOf === 2) ? 2 : 1;
+  const out = [];
+  for(let i=0; i<n; i++) out.push({ sa:"", sb:"" });
+  return out;
+}
+
+/* Определяет победителя матча по массиву партий и формату.
+   Возвращает: 1 если победила t1, -1 если t2, 0 если ничья/нет счёта.
+   scored/conceded — сумма очков (для стандингов). */
+function evalMatch(sets, bestOf){
+  let a = 0, b = 0, anyScore = false;
+  (sets || []).forEach(s => {
+    const sa = parseInt(s.sa, 10);
+    const sb = parseInt(s.sb, 10);
+    if(!isNaN(sa) && !isNaN(sb)){
+      a += sa; b += sb; anyScore = true;
+    }
+  });
+  if(!anyScore) return { winner: 0, scored: 0, conceded: 0, hasScore: false };
+  // Победитель — по сумме очков (для 1 партии это то же самое).
+  const winner = a > b ? 1 : a < b ? -1 : 0;
+  return { winner, scored: a, conceded: b, hasScore: true };
+}
+
 /* ===================== pairing engines ===================== */
+
+/* Раунд одиночек: пары «игрок vs игрок», без повторов матчей.
+   Один корт занимают 2 игрока. */
+function buildSoloRound(players, usedMatchSet, playCount, courts){
+  const N = players.length;
+  if(N < 2) return null;
+  // На один корт — 2 игрока. Активных: 2*K, отдыхает N - 2*K.
+  const K = Math.min(courts, Math.floor(N/2));
+  if(K < 1) return null;
+  const restN = N - 2*K;
+
+  // Выбираем отдыхающих: те, кто уже больше играл (по playCount), с рандомным шумом
+  let resterSets;
+  if(restN === 0){
+    resterSets = [[]];
+  } else {
+    resterSets = Array.from(combinations(players, restN));
+    const scored = resterSets.map(s => ({
+      rest: s,
+      score: s.reduce((sum,p) => sum + (playCount[p]||0), 0) + Math.random()*0.5
+    }));
+    scored.sort((a,b) => b.score - a.score);
+    resterSets = scored.map(x => x.rest);
+  }
+
+  for(const restList of resterSets){
+    const restSet = new Set(restList);
+    const active = shuffle(players.filter(p => !restSet.has(p)));
+    // Пары «игрок vs игрок» — backtracking, без повторов матчей
+    const pairing = trySoloPairs(active, usedMatchSet);
+    if(pairing){
+      shuffle(pairing);
+      const games = pairing.map((m, gi) => ({
+        court: gi+1,
+        t1: [m[0]],
+        t2: [m[1]],
+        t1Fixed: false,
+        t2Fixed: false,
+        sets: mkEmptySets()
+      }));
+      return { games, active, resting: [...restList] };
+    }
+  }
+  return null;
+}
+
+/* Разбиение активных игроков на матчи 1×1, без повторов из usedMatchSet.
+   dkey(a,b) даёт неупорядоченный ключ (сортировкой внутри). */
+function trySoloPairs(active, usedMatchSet){
+  const result = [];
+  function bt(rem){
+    if(rem.length === 0) return true;
+    const a = rem[0], rest = rem.slice(1);
+    for(const k of shuffle(rest.map((_,i)=>i))){
+      const b = rest[k];
+      const key = pkey(a, b); // pkey сортирует, что нам и нужно для 1×1
+      if(usedMatchSet.has(key)) continue;
+      result.push([a, b]);
+      if(bt(rest.filter((_,i) => i !== k))) return true;
+      result.pop();
+    }
+    return false;
+  }
+  return bt(active.slice()) ? result : null;
+}
+
 function tryPairUp(active, usedSet){
   const result=[];
   function bt(rem){
@@ -1007,7 +1147,7 @@ function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
             t1, t2,
             t1Fixed: lockedKeySet.has(pkey(t1[0],t1[1])),
             t2Fixed: lockedKeySet.has(pkey(t2[0],t2[1])),
-            sa:"", sb:""
+            sets: mkEmptySets()
           });
         }
         return {
@@ -1106,7 +1246,7 @@ function buildDoubleRound(L1, L2, lockedPairs, usedSet, playCount, courts){
             t1, t2,
             t1Fixed: lockedKeySet.has(dkey(t1[0],t1[1])),
             t2Fixed: lockedKeySet.has(dkey(t2[0],t2[1])),
-            sa:"", sb:""
+            sets: mkEmptySets()
           });
         }
         const active = [...lockedFromL1, ...lockedFromL2, ...useM, ...useW];
@@ -1176,7 +1316,7 @@ function buildPairsRound(pairs, usedMatchSet, playCount, courts){
         t2: [pairs[m[1]][0], pairs[m[1]][1]],
         t1Fixed: false,  // в pairs-режиме маркеры «фикс.» не нужны — все пары и так фиксированы
         t2Fixed: false,
-        sa: "", sb: ""
+        sets: mkEmptySets()
       }));
       const activePlayers = activeIdx.flatMap(i => [pairs[i][0], pairs[i][1]]);
       const restingPlayers = restList.flatMap(i => [pairs[i][0], pairs[i][1]]);
@@ -1206,7 +1346,25 @@ function addRounds(count, toMax){
   showErr("");
   syncInputsToDB();
   const courts=DB.courts;
-  let added=0, stopped=false;
+  let added=0, stopped=false, cycledInThisCall=false;
+  if(!(typeof DB.cycle === "number" && DB.cycle >= 1)) DB.cycle = 1;
+
+  /* Универсальный запуск одной итерации с автоматическим сбросом круга.
+     При toMax=true (кнопка "До максимума") автоповтор ОТКЛЮЧЁН —
+     кнопка честно строит только уникальные раунды и останавливается,
+     когда все комбинации исчерпаны.
+     buildFn() → раунд или null.
+     resetFn() → должна очистить локальные used* (и, если нужно, восстановить постоянные ограничения).
+     Возвращает { rd, cycled }. rd=null, если построить не удаётся. */
+  function tryBuildOne(buildFn, resetFn){
+    const rd1 = buildFn();
+    if(rd1) return { rd: rd1, cycled: false };
+    if(toMax) return { rd: null, cycled: false };
+    // Обычный режим: не смогли — сбрасываем круг и пробуем ещё раз
+    resetFn();
+    const rd2 = buildFn();
+    return { rd: rd2, cycled: !!rd2 };
+  }
 
   if(DB.mode==="pairs"){
     // Готовые пары: меняются только соперники и расстановка по кортам, без повторов матчей
@@ -1220,22 +1378,24 @@ function addRounds(count, toMax){
     if(pairs.length < 2){ showErr("Нужно минимум 2 пары."); return; }
     if(parsed.allPlayers.length > 16){ showErr("Максимум 16 игроков (до 8 пар)."); return; }
 
-    const usedMatchSet = new Set(DB.usedMatchups);
+    let usedMatchSet = new Set(DB.usedMatchups);
     const limit = toMax ? 999 : count;
     for(let i=0; i<limit; i++){
-      const rd = buildPairsRound(pairs, usedMatchSet, DB.playCount, courts);
+      const { rd, cycled } = tryBuildOne(
+        () => buildPairsRound(pairs, usedMatchSet, DB.playCount, courts),
+        () => { usedMatchSet = new Set(); DB.cycle++; cycledInThisCall = true; }
+      );
       if(!rd){ stopped = true; break; }
+      rd.cycle = DB.cycle;
       rd.games.forEach(g => { usedMatchSet.add(mkey(g.t1, g.t2)); });
       rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
       DB.rounds.push(rd); added++;
     }
     DB.usedMatchups = [...usedMatchSet];
   } else if(DB.mode==="restricted"){
-    // Американо с ограничениями: два списка, R×R партнёрства запрещены.
     const listR = parseList(DB.listR);
     const listF = parseList(DB.listF);
     const total = listR.length + listF.length;
-    // Дубликаты между списками — ошибка
     const rSet = new Set(listR);
     for(const p of listF){
       if(rSet.has(p)){ showErr("«"+p+"» есть в обоих списках."); return; }
@@ -1246,36 +1406,61 @@ function addRounds(count, toMax){
       showErr("Список 1 пуст — тогда это обычное американо, используйте вкладку «Один список».");
       return;
     }
-    // Если |listR| > |listF|, раунд всё равно возможен: часть «ограниченных» будет
-    // отдыхать. Проверять жёстко не нужно — buildSingleRound сам подберёт состав.
 
-    // usedSet — реально сыгранные пары (сохраняются в DB).
-    // constrained — то, что запрещено в этом раунде: сыгранные + все R×R.
-    const usedSet = new Set(DB.usedPairs);
-    const constrained = new Set(usedSet);
+    // R×R запреты — постоянные, восстанавливаются при сбросе круга
+    const rxrKeys = [];
     for(let i=0; i<listR.length; i++){
-      for(let j=i+1; j<listR.length; j++){
-        constrained.add(pkey(listR[i], listR[j]));
-      }
+      for(let j=i+1; j<listR.length; j++) rxrKeys.push(pkey(listR[i], listR[j]));
     }
+    let usedSet = new Set(DB.usedPairs);
+    let constrained = new Set(usedSet);
+    rxrKeys.forEach(k => constrained.add(k));
+
     const limit = toMax ? 999 : count;
     for(let i=0; i<limit; i++){
-      const rd = buildRestrictedRound(listR, listF, constrained, DB.playCount, courts);
+      const { rd } = tryBuildOne(
+        () => buildRestrictedRound(listR, listF, constrained, DB.playCount, courts),
+        () => {
+          usedSet = new Set();
+          constrained = new Set();
+          rxrKeys.forEach(k => constrained.add(k));
+          DB.cycle++; cycledInThisCall = true;
+        }
+      );
       if(!rd){ stopped=true; break; }
+      rd.cycle = DB.cycle;
       rd.games.forEach(g=>{
         const k1 = pkey(g.t1[0], g.t1[1]);
         const k2 = pkey(g.t2[0], g.t2[1]);
         usedSet.add(k1); usedSet.add(k2);
-        // добавляем в constrained тоже, чтобы следующие итерации не повторили
         constrained.add(k1); constrained.add(k2);
       });
       rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
       DB.rounds.push(rd); added++;
     }
-    // Сохраняем только реально сыгранные пары; R×R запреты вычисляются динамически.
     DB.usedPairs = [...usedSet];
+  } else if(DB.mode==="solo"){
+    // Одиночки: 1×1, без партнёров, без повторов матчей.
+    const players = parseList(DB.listS);
+    if(players.length < 2){ showErr("Нужно минимум 2 игрока."); return; }
+    if(players.length > 16){ showErr("Максимум 16 игроков."); return; }
+
+    let usedMatchSet = new Set(DB.usedMatchups);
+    const limit = toMax ? 999 : count;
+    for(let i=0; i<limit; i++){
+      const { rd } = tryBuildOne(
+        () => buildSoloRound(players, usedMatchSet, DB.playCount, courts),
+        () => { usedMatchSet = new Set(); DB.cycle++; cycledInThisCall = true; }
+      );
+      if(!rd){ stopped = true; break; }
+      rd.cycle = DB.cycle;
+      rd.games.forEach(g => { usedMatchSet.add(pkey(g.t1[0], g.t2[0])); });
+      rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
+      DB.rounds.push(rd); added++;
+    }
+    DB.usedMatchups = [...usedMatchSet];
   } else {
-    const usedSet=new Set(DB.usedPairs);
+    let usedSet=new Set(DB.usedPairs);
     const lockedPairs = getValidFixedPairs();
     const K = lockedPairs.length;
 
@@ -1293,8 +1478,12 @@ function addRounds(count, toMax){
         showErr("Все игроки в фиксированных парах — добавляем "+limit+" раунд(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
       }
       for(let i=0;i<limit;i++){
-        const rd=buildSingleRound(players, lockedPairs, usedSet, DB.playCount, courts);
+        const { rd } = tryBuildOne(
+          () => buildSingleRound(players, lockedPairs, usedSet, DB.playCount, courts),
+          () => { usedSet = new Set(); DB.cycle++; cycledInThisCall = true; }
+        );
         if(!rd){ stopped=true; break; }
+        rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(pkey(g.t1[0],g.t1[1]));
           if(!g.t2Fixed) usedSet.add(pkey(g.t2[0],g.t2[1]));
@@ -1316,8 +1505,12 @@ function addRounds(count, toMax){
         showErr("Все игроки в фиксированных парах — добавляем "+limit+" раунд(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
       }
       for(let i=0;i<limit;i++){
-        const rd=buildDoubleRound(L1,L2,lockedPairs,usedSet,DB.playCount,courts);
+        const { rd } = tryBuildOne(
+          () => buildDoubleRound(L1,L2,lockedPairs,usedSet,DB.playCount,courts),
+          () => { usedSet = new Set(); DB.cycle++; cycledInThisCall = true; }
+        );
         if(!rd){ stopped=true; break; }
+        rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(dkey(g.t1[0],g.t1[1]));
           if(!g.t2Fixed) usedSet.add(dkey(g.t2[0],g.t2[1]));
@@ -1332,32 +1525,40 @@ function addRounds(count, toMax){
   saveDB();
   renderAll();
   if(added===0){
-    let msg;
-    if(DB.mode==="pairs") msg = "Новых раундов нет — все возможные матчи между парами уже сыграны.";
-    else if(DB.mode==="restricted") msg = "Новых раундов нет — все допустимые пары (с учётом ограничений) уже сыграны.";
-    else msg = "Новых раундов нет — все возможные пары уже сыграны или фиксированные пары не помещаются на корты.";
+    // Даже с автоповтором (или при toMax без него) не получилось
+    let msg = "Раунд построить не удалось: проверьте состав игроков, фиксированные пары и число кортов.";
+    if(DB.mode==="pairs") msg = "Не удалось построить раунд. Проверьте, что пар минимум 2 и все игроки корректны.";
+    else if(DB.mode==="solo") msg = "Не удалось построить раунд. Нужно минимум 2 игрока.";
+    else if(toMax && stopped) msg = "Новых уникальных раундов больше нет — все возможные комбинации сыграны.";
     showErr(msg);
-  } else if(stopped && toMax){ /* fine */ }
-  else if(stopped){
-    showErr("Добавлено "+added+" — дальше "+(DB.mode==="pairs"?"матчи":"случайные пары")+" начали бы повторяться.");
+  } else if(toMax && stopped){
+    // "До максимума" честно остановилось на конце круга — это норма, не ошибка
+    showErr("Добавлено "+added+" уникальных раунд(ов) — все возможные комбинации сыграны. Нажмите «+ Добавить раунд(ы)», чтобы продолжить с повторами.");
+  } else if(cycledInThisCall){
+    showErr("Все уникальные комбинации сыграны — начали новый круг (некоторые матчи повторятся).");
   }
   $("#out").scrollIntoView({behavior:"smooth",block:"start"});
 }
 
 /* ===================== standings ===================== */
 function computeStandings(){
-  const stat={}; // name -> {games, wins, plus, minus, diff}
+  const stat={}; // name -> {games, wins, scored, conceded, diff}
   const touch=n=>{ if(!stat[n]) stat[n]={name:n,games:0,wins:0,scored:0,conceded:0,diff:0}; return stat[n]; };
   DB.rounds.forEach(rd=>{
     rd.games.forEach(g=>{
-      const a=parseInt(g.sa,10), b=parseInt(g.sb,10);
-      const t1=[g.t1[0],g.t1[1]], t2=[g.t2[0],g.t2[1]];
-      const haveScore = !isNaN(a)&&!isNaN(b);
-      [...t1,...t2].forEach(p=>{ if(haveScore) touch(p).games++; });
-      if(!haveScore) return;
-      const d=a-b;
-      t1.forEach(p=>{ const s=touch(p); s.scored+=a; s.conceded+=b; s.diff+=d; if(d>0)s.wins++; });
-      t2.forEach(p=>{ const s=touch(p); s.scored+=b; s.conceded+=a; s.diff-=d; if(d<0)s.wins++; });
+      // t1/t2 могут быть длины 1 (solo) или 2 (парные режимы)
+      const t1 = Array.isArray(g.t1) ? g.t1 : [];
+      const t2 = Array.isArray(g.t2) ? g.t2 : [];
+      // Совместимость: если старая игра без sets, но с sa/sb — оборачиваем на лету
+      const sets = Array.isArray(g.sets)
+        ? g.sets
+        : [{ sa: g.sa || "", sb: g.sb || "" }];
+      const res = evalMatch(sets, sets.length);
+      [...t1, ...t2].forEach(p => { if(res.hasScore) touch(p).games++; });
+      if(!res.hasScore) return;
+      const d = res.scored - res.conceded;
+      t1.forEach(p => { const s=touch(p); s.scored+=res.scored; s.conceded+=res.conceded; s.diff+=d; if(res.winner>0) s.wins++; });
+      t2.forEach(p => { const s=touch(p); s.scored+=res.conceded; s.conceded+=res.scored; s.diff-=d; if(res.winner<0) s.wins++; });
     });
   });
   return Object.values(stat).sort((x,y)=> y.diff-x.diff || y.wins-x.wins || y.scored-x.scored || x.name.localeCompare(y.name));
@@ -1392,7 +1593,15 @@ function renderStandings(){
   box.innerHTML=html;
   $("#clearScores").onclick=()=>{
     if(!confirm("Очистить все введённые счета? Сетка раундов останется.")) return;
-    DB.rounds.forEach(rd=>rd.games.forEach(g=>{g.sa="";g.sb="";}));
+    DB.rounds.forEach(rd=>rd.games.forEach(g=>{
+      if(Array.isArray(g.sets)){
+        g.sets.forEach(s=>{ s.sa=""; s.sb=""; });
+      } else {
+        g.sets = [{sa:"", sb:""}];
+      }
+      // legacy: удаляем старые поля
+      delete g.sa; delete g.sb;
+    }));
     saveDB(); renderAll();
   };
 }
@@ -1407,6 +1616,7 @@ function renderRounds(){
     DB.mode==="double"     ? "микст" :
     DB.mode==="pairs"      ? "готовые пары" :
     DB.mode==="restricted" ? "с ограничениями" :
+    DB.mode==="solo"       ? "одиночки" :
     DB.mode;
   // в pairs-режиме показываем число пар вместо числа фикс. пар; в restricted — раскладку R/F
   let extraPill = "";
@@ -1417,38 +1627,62 @@ function renderRounds(){
     const r = parseList(DB.listR).length;
     const f = parseList(DB.listF).length;
     extraPill = `<span class="pill">огранич./свободн.: <b>${r}/${f}</b></span>`;
+  } else if(DB.mode==="solo"){
+    const s = parseList(DB.listS).length;
+    extraPill = `<span class="pill">игроков: <b>${s}</b></span>`;
   } else if(totalFixed){
     extraPill = `<span class="pill">фикс. пар: <b>${totalFixed}</b></span>`;
   }
+  // maxCycle — сколько кругов уже разыграно
+  const maxCycle = DB.rounds.reduce((m,r) => Math.max(m, r.cycle||1), 1);
+  const cyclePill = maxCycle > 1 ? `<span class="pill">кругов: <b>${maxCycle}</b></span>` : "";
+  const formatPill = (DB.bestOf === 2) ? `<span class="pill">формат: <b>2 партии</b></span>` : "";
   let html=`<div class="meta">
     <span class="pill">режим: <b>${modeName}</b></span>
     <span class="pill">раундов: <b>${DB.rounds.length}</b></span>
     <span class="pill">кортов: <b>${DB.courts}</b></span>
+    ${formatPill}
+    ${cyclePill}
     ${extraPill}
   </div>`;
   DB.rounds.forEach((rd,ri)=>{
     const rest=rd.resting&&rd.resting.length?`Отдыхают: ${rd.resting.map(esc).join(", ")}`:"Все играют";
+    const cycleBadge = (rd.cycle && rd.cycle > 1) ? `<span class="cycle-badge">Круг ${rd.cycle}</span>` : "";
     html+=`<div class="round">
       <div class="round-head">
-        <div class="rname">Раунд <span>${ri+1}</span></div>
+        <div class="rname">Раунд <span>${ri+1}</span>${cycleBadge}</div>
         <div class="resting ${rd.resting&&rd.resting.length?"":"none"}">${rest}</div>
       </div><div class="games">`;
     rd.games.forEach((g,gi)=>{
       const hasFixed = g.t1Fixed || g.t2Fixed;
       const t1Lock = g.t1Fixed?'<span class="pair-locked">● фикс.</span>':'';
       const t2Lock = g.t2Fixed?'<span class="pair-locked">фикс. ●</span>':'';
-      html+=`<div class="game${hasFixed?' has-fixed':''}">
+      const isSolo = (g.t1||[]).length === 1;
+      // отрисовка имён команды: 1 или 2 игрока
+      const teamHtml = (team, alignRight, lockHtml) => {
+        const styleAttr = alignRight ? ' style="text-align:right"' : "";
+        const players = (team||[]).map(p => `<span class="pl">${esc(p)}</span>`).join("");
+        return `<div class="team"${styleAttr}>${lockHtml}${players}</div>`;
+      };
+      // sets: массив [{sa, sb}, ...]. С совместимостью — если старая игра, оборачиваем.
+      const sets = Array.isArray(g.sets) ? g.sets : [{ sa: g.sa||"", sb: g.sb||"" }];
+      const setsHtml = sets.map((s, si) => {
+        const label = sets.length > 1 ? `<span class="set-label">Партия ${si+1}</span>` : "";
+        return `<div class="set">
+          ${label}
+          <input class="mono" inputmode="numeric" maxlength="2" value="${esc(s.sa)}" data-r="${ri}" data-g="${gi}" data-set="${si}" data-side="a">
+          <span class="colon">:</span>
+          <input class="mono" inputmode="numeric" maxlength="2" value="${esc(s.sb)}" data-r="${ri}" data-g="${gi}" data-set="${si}" data-side="b">
+        </div>`;
+      }).join("");
+      html+=`<div class="game${hasFixed?' has-fixed':''}${isSolo?' solo':''}">
         <div class="court"><span>Корт ${g.court}</span><b>Игра ${gi+1}</b></div>
         <div class="vs-row">
-          <div class="team">${t1Lock}<span class="pl">${esc(g.t1[0])}</span><span class="pl">${esc(g.t1[1])}</span></div>
+          ${teamHtml(g.t1, false, t1Lock)}
           <div class="vs">VS</div>
-          <div class="team" style="text-align:right">${t2Lock}<span class="pl">${esc(g.t2[0])}</span><span class="pl">${esc(g.t2[1])}</span></div>
+          ${teamHtml(g.t2, true, t2Lock)}
         </div>
-        <div class="score">
-          <input class="mono" inputmode="numeric" maxlength="2" value="${esc(g.sa)}" data-r="${ri}" data-g="${gi}" data-side="a">
-          <span class="colon">:</span>
-          <input class="mono" inputmode="numeric" maxlength="2" value="${esc(g.sb)}" data-r="${ri}" data-g="${gi}" data-side="b">
-        </div>
+        <div class="score">${setsHtml}</div>
       </div>`;
     });
     html+=`</div></div>`;
@@ -1457,8 +1691,15 @@ function renderRounds(){
   out.querySelectorAll(".score input").forEach(inp=>{
     inp.addEventListener("input",()=>{
       inp.value=inp.value.replace(/[^0-9]/g,"");
-      const r=+inp.dataset.r,g=+inp.dataset.g,side=inp.dataset.side;
-      DB.rounds[r].games[g][side==="a"?"sa":"sb"]=inp.value;
+      const r=+inp.dataset.r, gi=+inp.dataset.g, si=+inp.dataset.set, side=inp.dataset.side;
+      const game = DB.rounds[r].games[gi];
+      // страховка от старых игр без sets
+      if(!Array.isArray(game.sets)) game.sets = [{ sa: game.sa||"", sb: game.sb||"" }];
+      // подстраховка на случай, если bestOf увеличили после создания раунда
+      while(game.sets.length <= si) game.sets.push({ sa:"", sb:"" });
+      game.sets[si][side==="a"?"sa":"sb"]=inp.value;
+      // legacy: чистим старые sa/sb
+      delete game.sa; delete game.sb;
     });
     inp.addEventListener("change",()=>{ saveDB(); renderStandings(); });
   });
@@ -2653,6 +2894,7 @@ function syncInputsToDB(){
   DB.listP=$("#listP").value;
   DB.listR=$("#listR").value;
   DB.listF=$("#listF").value;
+  DB.listS=$("#listS").value;
 }
 function applyDBToInputs(){
   $("#listA").value=DB.listA||"";
@@ -2661,6 +2903,7 @@ function applyDBToInputs(){
   $("#listP").value=DB.listP||"";
   $("#listR").value=DB.listR||"";
   $("#listF").value=DB.listF||"";
+  $("#listS").value=DB.listS||"";
   // mode tabs
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.mode===DB.mode));
   // normal vs cascade containers
@@ -2673,12 +2916,16 @@ function applyDBToInputs(){
     $("#double-input").style.display=DB.mode==="double"?"block":"none";
     $("#pairs-input").style.display=DB.mode==="pairs"?"block":"none";
     $("#restricted-input").style.display=DB.mode==="restricted"?"block":"none";
-    // фикс. пары не нужны в pairs/restricted-режимах (в pairs всё фиксировано, в restricted — свои правила)
-    $("#fixedPairsSection").style.display=(DB.mode==="pairs"||DB.mode==="restricted")?"none":"block";
+    $("#solo-input").style.display=DB.mode==="solo"?"block":"none";
+    // фикс. пары не нужны в pairs/restricted/solo-режимах
+    $("#fixedPairsSection").style.display=(DB.mode==="pairs"||DB.mode==="restricted"||DB.mode==="solo")?"none":"block";
     // courts
     document.querySelectorAll("#courtsSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.c===DB.courts));
+    // формат матча
+    const bo = (DB.bestOf === 2) ? 2 : 1;
+    document.querySelectorAll("#bestOfSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.b===bo));
     if(typeof updateCounts==="function") updateCounts();
-    if(typeof renderFixedPairs==="function" && DB.mode!=="pairs" && DB.mode!=="restricted") renderFixedPairs();
+    if(typeof renderFixedPairs==="function" && DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs();
   } else {
     // Каскад — отрисовываем его представление
     if(typeof renderCascade === "function") renderCascade();
@@ -2692,7 +2939,7 @@ document.querySelectorAll(".tab").forEach(t=>{
     const isCascadeSwitch = DB.mode === "cascade" || t.dataset.mode === "cascade";
     if(!isCascadeSwitch && DB.rounds.length){
       if(!confirm("Смена режима сбросит текущий турнир (раунды, счёт, фикс. пары). Продолжить?")) return;
-      DB.rounds=[]; DB.usedPairs=[]; DB.usedMatchups=[]; DB.playCount={};
+      DB.rounds=[]; DB.usedPairs=[]; DB.usedMatchups=[]; DB.playCount={}; DB.cycle=1;
     }
     DB.mode=t.dataset.mode;
     // фикс. пары валидны только для одного режима — очищаем при переключении
@@ -2703,6 +2950,28 @@ document.querySelectorAll(".tab").forEach(t=>{
 $("#courtsSeg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
   DB.courts=+b.dataset.c; applyDBToInputs(); saveDB();
+});
+$("#bestOfSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  const newBO = +b.dataset.b;
+  if(newBO === DB.bestOf) return;
+  // Если уже есть введённые результаты — предупредим
+  const anyScore = DB.rounds.some(rd => rd.games.some(g => {
+    const sets = Array.isArray(g.sets) ? g.sets : [{sa:g.sa||"",sb:g.sb||""}];
+    return sets.some(s => s.sa !== "" || s.sb !== "");
+  }));
+  if(anyScore && !confirm("Сменить формат матча? Уже введённые счёта сохранятся, но структура партий обновится (лишние удалятся, недостающие добавятся пустыми).")){
+    return;
+  }
+  DB.bestOf = newBO;
+  // Подгоняем размер sets у существующих игр
+  DB.rounds.forEach(rd => rd.games.forEach(g => {
+    if(!Array.isArray(g.sets)) g.sets = [{sa:g.sa||"", sb:g.sb||""}];
+    while(g.sets.length < newBO) g.sets.push({sa:"", sb:""});
+    while(g.sets.length > newBO) g.sets.pop();
+    delete g.sa; delete g.sb;
+  }));
+  applyDBToInputs(); saveDB(); renderAll();
 });
 function updateCounts(){
   const a=parseList($("#listA").value).length;
@@ -2760,6 +3029,19 @@ function updateCounts(){
   const warnRestricted = hasDup || rTotal > 16;
   $("#countR").classList.toggle("warn", warnRestricted);
   $("#countF").classList.toggle("warn", warnRestricted);
+
+  // solo mode
+  const soloN = parseList($("#listS").value).length;
+  const cS = $("#countS");
+  cS.textContent = plural(soloN, "игрок", "игрока", "игроков");
+  cS.classList.toggle("warn", soloN > 16);
+  const soloMatches = soloN >= 2 ? (soloN * (soloN - 1)) / 2 : 0;
+  const cSSum = $("#countSSummary");
+  if(soloN > 16){
+    cSSum.innerHTML = `<span style="color:var(--bad)">Больше 16 — лишние не сыграют</span>`;
+  } else {
+    cSSum.innerHTML = `Возможных матчей: <b>${soloMatches}</b>`;
+  }
 }
 function plural(n,one,few,many){
   const n10=n%10, n100=n%100;
@@ -2770,9 +3052,9 @@ function plural(n,one,few,many){
   return n+" "+w;
 }
 
-["listA","listM","listW","listP","listR","listF"].forEach(id=>{
-  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); if(DB.mode!=="pairs" && DB.mode!=="restricted") renderFixedPairs(); clearTimeout(flashT); });
-  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); cleanupFixedPairs(); saveDB(); if(DB.mode!=="pairs" && DB.mode!=="restricted") renderFixedPairs(); });
+["listA","listM","listW","listP","listR","listF","listS"].forEach(id=>{
+  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); if(DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs(); clearTimeout(flashT); });
+  $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); cleanupFixedPairs(); saveDB(); if(DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs(); });
 });
 
 /* ----- fixed pairs handlers ----- */
@@ -2807,7 +3089,7 @@ $("#maxBtn").onclick=()=>addRounds(0,true);
 $("#printBtn").onclick=()=>window.print();
 $("#resetBtn").onclick=()=>{
   if(!confirm("Сбросить турнир? Списки игроков и фиксированные пары останутся, но все раунды и счета будут удалены.")) return;
-  DB.rounds=[]; DB.usedPairs=[]; DB.usedMatchups=[]; DB.playCount={};
+  DB.rounds=[]; DB.usedPairs=[]; DB.usedMatchups=[]; DB.playCount={}; DB.cycle=1;
   saveDB(); renderAll(); showErr("");
 };
 
