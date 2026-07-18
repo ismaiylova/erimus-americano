@@ -515,7 +515,7 @@
 
     <div id="restricted-input" style="display:none">
       <h2>Американо с ограничениями</h2>
-      <p class="hint">Партнёры и соперники — случайные, как в обычном американо, но игроки из списка 1 никогда не окажутся партнёрами друг с другом (только с кем-то из списка 2). Игроки из списка 2 могут быть партнёрами с любыми. Без повторов пар между турами, максимум 16 игроков.</p>
+      <p class="hint">Партнёры и соперники — случайные, как в обычном американо, но игроки из списка 1 никогда не окажутся партнёрами друг с другом (только с кем-то из списка 2). Игроки из списка 2 могут быть партнёрами с любыми. Без повторов пар между турами, максимум 24 игрока.</p>
       <div class="twocol">
         <div>
           <div class="fld-row">
@@ -1522,7 +1522,7 @@ function addRounds(count, toMax){
       if(rSet.has(p)){ showErr("«"+p+"» есть в обоих списках."); return; }
     }
     if(total < 4){ showErr("Нужно минимум 4 игрока (в двух списках суммарно)."); return; }
-    if(total > 16){ showErr("Максимум 16 игроков."); return; }
+    if(total > 24){ showErr("Максимум 24 игрока."); return; }
     if(listR.length === 0){
       showErr("Список 1 пуст — тогда это обычное американо, используйте вкладку «Один список».");
       return;
@@ -4222,13 +4222,13 @@ function updateCounts(){
   let restrictedMsg = `Всего <b>${rTotal}</b>`;
   if(hasDup){
     restrictedMsg += ` · <span style="color:var(--bad)">есть игроки в обоих списках</span>`;
-  } else if(rTotal > 16){
-    restrictedMsg += ` · <span style="color:var(--bad)">больше 16 — часть не сыграет</span>`;
+  } else if(rTotal > 24){
+    restrictedMsg += ` · <span style="color:var(--bad)">больше 24 — часть не сыграет</span>`;
   } else if(r > 0 && f < r){
     restrictedMsg += ` · <span style="color:var(--accent)">свободных меньше ограниченных — часть игроков из списка 1 будет чаще отдыхать</span>`;
   }
   cRestricted.innerHTML = restrictedMsg;
-  const warnRestricted = hasDup || rTotal > 16;
+  const warnRestricted = hasDup || rTotal > 24;
   $("#countR").classList.toggle("warn", warnRestricted);
   $("#countF").classList.toggle("warn", warnRestricted);
 
