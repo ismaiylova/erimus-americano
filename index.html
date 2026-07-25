@@ -658,7 +658,7 @@ function finalizeStandings(rows){
   }
   return rows;
 }
-/* Форматирование среднего +- (2 знака после запятой, знак) */
+/* Форматирование среднего Δ (2 знака после запятой, знак) */
 function fmtAvgDiff(v, games){
   if(!games || games <= 0) return "—";
   const sign = v > 0 ? "+" : "";
@@ -670,8 +670,8 @@ function sortSelectorHtml(groupId){
   return `<div class="sort-selector" data-sort-group="${groupId||'default'}">
     <span class="sort-label">Сортировка:</span>
     <div class="seg seg-sm">
-      <button type="button" data-sort="diff" class="${by==='diff'?'on':''}">+-</button>
-      <button type="button" data-sort="avgDiff" class="${by==='avgDiff'?'on':''}">Среднее +-</button>
+      <button type="button" data-sort="diff" class="${by==='diff'?'on':''}">Δ</button>
+      <button type="button" data-sort="avgDiff" class="${by==='avgDiff'?'on':''}">Среднее Δ</button>
     </div>
   </div>`;
 }
@@ -1752,7 +1752,7 @@ function renderStandings(){
     ${sortSelectorHtml('main')}
     <table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     const cls=r.diff>0?"delta-pos":r.diff<0?"delta-neg":"delta-zero";
@@ -2382,7 +2382,7 @@ function renderCascadeStandingsCard(){
     ${sortSelectorHtml('cascade-stage1')}
     <table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th>Ур.</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -2554,7 +2554,7 @@ function computeCascadeStandingsAllWithStage2Delta(){
   processRounds(DB.cascade.ABE.rounds, "—", false, true);
   processRounds(DB.cascade.EF.rounds,  "—", false, true);
 
-  // avgDiff2 — среднее +- по Этапу 2 (нужно для отдельной колонки)
+  // avgDiff2 — среднее Δ по Этапу 2 (нужно для отдельной колонки)
   const rows = Object.values(stat);
   rows.forEach(r => { r.avgDiff2 = r.games2 > 0 ? r.diff2 / r.games2 : 0; });
   return finalizeStandings(rows);
@@ -2574,7 +2574,7 @@ function renderCascadeStage2StandingsCard(){
     <table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th>Ур.</th>
       <th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
       <th class="num">Δ Эт.2</th><th class="num">Ср. Δ Эт.2</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
@@ -2827,7 +2827,7 @@ function renderCascadeTotals(){
 function renderFinalTable(rows){
   let html = `<table class="tbl"><thead><tr>
     <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-    <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+    <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
   </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3493,7 +3493,7 @@ function renderDEFGroupStandingsTable(key){
     ${sortSelectorHtml('def-group-'+key)}
     <table class="tbl" style="font-size:13px"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3692,7 +3692,7 @@ function renderDEFStage2StandingsTable(){
     ${sortSelectorHtml('def-stage2')}
     <table class="tbl" style="font-size:13px"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3816,7 +3816,7 @@ function renderDEFTotals(){
     } else {
       html += `<table class="tbl" style="margin-bottom:8px"><thead><tr>
         <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-        <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+        <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
       </tr></thead><tbody>`;
       rows.forEach((r, i) => {
         const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3852,7 +3852,7 @@ function renderDEFTotals(){
     html += sortSelectorHtml('def-totals-stage2');
     html += `<table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
     s2rows.forEach((r, i) => {
       const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
