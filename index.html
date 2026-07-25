@@ -164,6 +164,12 @@
   .delta-zero{color:var(--navy-soft)}
   tr.top1 td{background:rgba(47,95,208,.06)}
 
+  /* sort selector */
+  .sort-selector{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+  .sort-selector .sort-label{font-size:11px;color:var(--navy-soft);font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+  .seg.seg-sm{border-radius:8px}
+  .seg.seg-sm button{height:30px;padding:0 10px;font-size:12px;font-family:"IBM Plex Mono",monospace;font-weight:600}
+
   .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
   .pill{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--navy-soft);background:var(--panel);border:1px solid var(--line);padding:6px 12px;border-radius:999px}
   .pill b{color:var(--blue);font-weight:600}
@@ -631,6 +637,56 @@
 
 <script>
 "use strict";
+
+/* ===================== sort mode (rating tables) ===================== */
+const SORT_STORE_KEY = "badminton_sort_by";
+function getSortBy(){
+  try{ return localStorage.getItem(SORT_STORE_KEY) === "avgDiff" ? "avgDiff" : "diff"; }
+  catch(_){ return "diff"; }
+}
+function setSortBy(v){
+  try{ localStorage.setItem(SORT_STORE_KEY, v === "avgDiff" ? "avgDiff" : "diff"); }catch(_){}
+}
+/* Финализирует массив рейтинга: добавляет avgDiff и сортирует по текущему режиму */
+function finalizeStandings(rows){
+  rows.forEach(r => { r.avgDiff = r.games > 0 ? r.diff / r.games : 0; });
+  const by = getSortBy();
+  if(by === "avgDiff"){
+    rows.sort((x,y) => y.avgDiff - x.avgDiff || y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  } else {
+    rows.sort((x,y) => y.diff - x.diff || y.avgDiff - x.avgDiff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  }
+  return rows;
+}
+/* Форматирование среднего +- (2 знака после запятой, знак) */
+function fmtAvgDiff(v, games){
+  if(!games || games <= 0) return "—";
+  const sign = v > 0 ? "+" : "";
+  return sign + v.toFixed(2);
+}
+/* HTML переключателя способа сортировки. groupId — уникальный ключ для повторных вставок на одной странице */
+function sortSelectorHtml(groupId){
+  const by = getSortBy();
+  return `<div class="sort-selector" data-sort-group="${groupId||'default'}">
+    <span class="sort-label">Сортировка:</span>
+    <div class="seg seg-sm">
+      <button type="button" data-sort="diff" class="${by==='diff'?'on':''}">+-</button>
+      <button type="button" data-sort="avgDiff" class="${by==='avgDiff'?'on':''}">Среднее +-</button>
+    </div>
+  </div>`;
+}
+/* Общий обработчик для всех переключателей на странице */
+function attachSortHandlers(){
+  document.querySelectorAll("[data-sort-group] [data-sort]").forEach(btn => {
+    btn.onclick = () => {
+      setSortBy(btn.dataset.sort);
+      // Пере-рендер всех активных представлений
+      if(typeof renderAll === "function") renderAll();
+      if(typeof renderCascade === "function" && DB && DB.mode === "cascade") renderCascade();
+      if(typeof renderDEF === "function" && DB && DB.mode === "def") renderDEF();
+    };
+  });
+}
 
 /* ===================== persistence (local + cloud) ===================== */
 const STORE_KEY = "badminton_americano_v2";
@@ -1682,7 +1738,7 @@ function computeStandings(){
       t2.forEach(p => { const s=touch(p); s.scored+=res.conceded; s.conceded+=res.scored; s.diff-=d; if(res.winner<0) s.wins++; });
     });
   });
-  return Object.values(stat).sort((x,y)=> y.diff-x.diff || y.wins-x.wins || y.scored-x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 function renderStandings(){
   const box=$("#standings");
@@ -1693,13 +1749,15 @@ function renderStandings(){
       <h2>Таблица — разница воланов</h2>
       <button class="btn ghost" id="clearScores">Очистить счёт</button>
     </div>
+    ${sortSelectorHtml('main')}
     <table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
     </tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     const cls=r.diff>0?"delta-pos":r.diff<0?"delta-neg":"delta-zero";
     const sign=r.diff>0?"+":"";
+    const clsA=r.avgDiff>0?"delta-pos":r.avgDiff<0?"delta-neg":"delta-zero";
     html+=`<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -1708,10 +1766,12 @@ function renderStandings(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html+=`</tbody></table></div>`;
   box.innerHTML=html;
+  attachSortHandlers();
   $("#clearScores").onclick=()=>{
     if(!confirm("Очистить все введённые счета? Сетка туров останется.")) return;
     DB.rounds.forEach(rd=>rd.games.forEach(g=>{
@@ -2311,7 +2371,7 @@ function computeCascadeStandings(scope){
   processRounds(DB.cascade.E.rounds, "E", false);
   processRounds(DB.cascade.F.rounds, "F", false);
 
-  return Object.values(stat).sort((x,y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 function renderCascadeStandingsCard(){
@@ -2319,13 +2379,15 @@ function renderCascadeStandingsCard(){
   if(!rows.length) return "";
   let html = `<div class="card" style="margin-bottom:14px">
     <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 12px;font-weight:800">Общая таблица — Этап 1</h2>
+    ${sortSelectorHtml('cascade-stage1')}
     <table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th>Ур.</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th>Ур.</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -2335,6 +2397,7 @@ function renderCascadeStandingsCard(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
@@ -2491,7 +2554,10 @@ function computeCascadeStandingsAllWithStage2Delta(){
   processRounds(DB.cascade.ABE.rounds, "—", false, true);
   processRounds(DB.cascade.EF.rounds,  "—", false, true);
 
-  return Object.values(stat).sort((x,y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  // avgDiff2 — среднее +- по Этапу 2 (нужно для отдельной колонки)
+  const rows = Object.values(stat);
+  rows.forEach(r => { r.avgDiff2 = r.games2 > 0 ? r.diff2 / r.games2 : 0; });
+  return finalizeStandings(rows);
 }
 
 function renderCascadeStage2StandingsCard(){
@@ -2504,17 +2570,20 @@ function renderCascadeStage2StandingsCard(){
   }
   let html = `<div class="card" style="margin-bottom:14px">
     <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 12px;font-weight:800">Общая таблица — оба этапа</h2>
+    ${sortSelectorHtml('cascade-all')}
     <table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th>Ур.</th>
-      <th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
-      <th class="num">Δ Эт.2</th>
+      <th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
+      <th class="num">Δ Эт.2</th><th class="num">Ср. Δ Эт.2</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     const cls2 = r.diff2 > 0 ? "delta-pos" : r.diff2 < 0 ? "delta-neg" : "delta-zero";
     const sign2 = r.diff2 > 0 ? "+" : "";
+    const clsA2 = r.avgDiff2 > 0 ? "delta-pos" : r.avgDiff2 < 0 ? "delta-neg" : "delta-zero";
     const lvlBadge = r.level === "—"
       ? `<span style="color:var(--navy-soft);font-size:11px">—</span>`
       : `<span class="lvl-badge-inline ${r.level.toLowerCase()}">${r.level}</span>`;
@@ -2522,6 +2591,7 @@ function renderCascadeStage2StandingsCard(){
       ? `${r.games} <span style="color:var(--navy-soft);font-size:11px;font-weight:500">(+${r.games2})</span>`
       : `${r.games}`;
     const delta2Cell = r.games2 > 0 ? `${sign2}${r.diff2}` : `<span style="color:var(--navy-soft)">—</span>`;
+    const avgDelta2Cell = r.games2 > 0 ? fmtAvgDiff(r.avgDiff2, r.games2) : `<span style="color:var(--navy-soft)">—</span>`;
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -2531,7 +2601,9 @@ function renderCascadeStage2StandingsCard(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
       <td class="num ${cls2}">${delta2Cell}</td>
+      <td class="num ${clsA2}">${avgDelta2Cell}</td>
     </tr>`;
   });
   html += `</tbody></table>
@@ -2704,7 +2776,7 @@ function computeCascadeStandingsForPlayers(playerSet){
   processRounds(DB.cascade.F.rounds, false);
   processRounds(DB.cascade.ABE.rounds, false);
   processRounds(DB.cascade.EF.rounds, false);
-  return Object.values(stat).sort((x,y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 /* ===== Рендер: Итоги — две таблицы ===== */
@@ -2729,6 +2801,7 @@ function renderCascadeTotals(){
   if(!abeRows.length || abeRows.every(r => r.games === 0)){
     html += `<p class="hint" style="margin:0;text-align:center">Нет сыгранных матчей со счётом для игроков из ABE.</p>`;
   } else {
+    html += sortSelectorHtml('totals-abe');
     html += renderFinalTable(abeRows);
   }
   html += `</div>`;
@@ -2743,6 +2816,7 @@ function renderCascadeTotals(){
   if(!efRows.length || efRows.every(r => r.games === 0)){
     html += `<p class="hint" style="margin:0;text-align:center">Нет сыгранных матчей со счётом для игроков из EF.</p>`;
   } else {
+    html += sortSelectorHtml('totals-ef');
     html += renderFinalTable(efRows);
   }
   html += `</div>`;
@@ -2752,12 +2826,13 @@ function renderCascadeTotals(){
 
 function renderFinalTable(rows){
   let html = `<table class="tbl"><thead><tr>
-    <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-    <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+    <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+    <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
   </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -2766,6 +2841,7 @@ function renderFinalTable(rows){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table>`;
@@ -2783,6 +2859,7 @@ function renderCascade(){
   else if(v === "distribution") renderCascadeDistribution();
   else if(v === "stage2") renderCascadeStage2();
   else renderCascadeTotals();
+  attachSortHandlers();
 }
 
 /* ===== Общий диспетчер добавления тура ===== */
@@ -3169,7 +3246,7 @@ function computeDEFGroupStandings(key){
   });
   // Добавим игроков без матчей, чтобы они тоже присутствовали в списке
   parseList(sub.input).forEach(p => touch(p));
-  return Object.values(stat).sort((x, y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 /* Все игроки, которые уже сыграли хотя бы один матч со счётом в Этапе 1 (по всем группам) */
@@ -3344,7 +3421,7 @@ function computeDEFStage2Standings(){
       t2.forEach(p => { const s = touch(p); s.games++; s.scored += res.conceded; s.conceded += res.scored; s.diff -= d; if(res.winner < 0) s.wins++; });
     });
   });
-  return Object.values(stat).sort((x, y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 /* ===================================================================
@@ -3413,13 +3490,15 @@ function renderDEFGroupStandingsTable(key){
     <h4 style="font-family:'Fraunces',serif;font-size:14px;margin:0 0 8px;font-weight:700">
       <span class="lvl-badge-inline ${meta.cls}">${meta.label}</span> Рейтинг группы
     </h4>
+    ${sortSelectorHtml('def-group-'+key)}
     <table class="tbl" style="font-size:13px"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0 && r.games>0 ?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -3428,6 +3507,7 @@ function renderDEFGroupStandingsTable(key){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${r.games > 0 ? sign + r.diff : "—"}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
@@ -3609,13 +3689,15 @@ function renderDEFStage2StandingsTable(){
       <span class="lvl-badge-inline s2">2</span> Рейтинг Этапа 2 (с нуля)
     </h4>
     <p class="hint" style="margin:0 0 8px">Отдельный рейтинг Этапа 2 — рейтинги групп Этапа 1 сохранены, награждать будем по ним.</p>
+    ${sortSelectorHtml('def-stage2')}
     <table class="tbl" style="font-size:13px"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -3624,6 +3706,7 @@ function renderDEFStage2StandingsTable(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
@@ -3719,7 +3802,8 @@ function renderDEFTotals(){
   let html = "";
   html += `<div class="card" style="margin-bottom:14px">
     <h2 style="font-family:'Fraunces',serif;font-size:20px;margin:0 0 6px;font-weight:800">Итоги · Этап 1</h2>
-    <p class="hint" style="margin:0 0 14px">Рейтинг считается по разнице воланов, отдельно в каждой группе — награждать будем по этим таблицам.</p>`;
+    <p class="hint" style="margin:0 0 14px">Рейтинг считается по разнице воланов, отдельно в каждой группе — награждать будем по этим таблицам.</p>
+    ${sortSelectorHtml('def-totals-stage1')}`;
   DEF_GROUPS.forEach(key => {
     const meta = DEF_GROUP_META[key];
     const rows = computeDEFGroupStandings(key);
@@ -3731,12 +3815,13 @@ function renderDEFTotals(){
       html += `<p class="hint" style="margin:0 0 8px">Нет сыгранных матчей со счётом.</p>`;
     } else {
       html += `<table class="tbl" style="margin-bottom:8px"><thead><tr>
-        <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-        <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+        <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+        <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
       </tr></thead><tbody>`;
       rows.forEach((r, i) => {
         const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
         const sign = r.diff > 0 ? "+" : "";
+        const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
         html += `<tr class="${i===0 && r.games>0 ?'top1':''}">
           <td class="rank">${i+1}</td>
           <td class="name">${esc(r.name)}</td>
@@ -3745,6 +3830,7 @@ function renderDEFTotals(){
           <td class="num">${r.scored}</td>
           <td class="num">${r.conceded}</td>
           <td class="num ${cls}">${r.games > 0 ? sign + r.diff : "—"}</td>
+          <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
         </tr>`;
       });
       html += `</tbody></table>`;
@@ -3763,13 +3849,15 @@ function renderDEFTotals(){
   if(!hasStage2){
     html += `<p class="hint" style="margin:0;text-align:center">Пока нет сыгранных матчей Этапа 2.</p>`;
   } else {
+    html += sortSelectorHtml('def-totals-stage2');
     html += `<table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">+-</th><th class="num">Среднее +-</th>
     </tr></thead><tbody>`;
     s2rows.forEach((r, i) => {
       const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
       const sign = r.diff > 0 ? "+" : "";
+      const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
       html += `<tr class="${i===0?'top1':''}">
         <td class="rank">${i+1}</td>
         <td class="name">${esc(r.name)}</td>
@@ -3778,6 +3866,7 @@ function renderDEFTotals(){
         <td class="num">${r.scored}</td>
         <td class="num">${r.conceded}</td>
         <td class="num ${cls}">${sign}${r.diff}</td>
+        <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
       </tr>`;
     });
     html += `</tbody></table>`;
@@ -3796,6 +3885,7 @@ function renderDEF(){
   if(v === "stage1") renderDEFStage1();
   else if(v === "stage2") renderDEFStage2();
   else renderDEFTotals();
+  attachSortHandlers();
 }
 
 /* ---------------------------------------------------------------------
