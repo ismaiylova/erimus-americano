@@ -242,7 +242,7 @@
   .game.has-fixed::before{background:var(--accent)}
   .pair-locked{color:var(--accent);font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px}
 
-  /* ===== CASCADE TOURNAMENT ===== */
+  /* ===== group subnav (DEF only) ===== */
   .cascade-subnav{display:flex;gap:4px;background:var(--panel-2);padding:5px;border-radius:12px;border:1px solid var(--line);margin-bottom:18px;flex-wrap:wrap}
   .cascade-subnav button{appearance:none;border:0;background:transparent;color:var(--navy-soft);font-family:inherit;font-weight:600;font-size:13px;padding:8px 14px;border-radius:8px;cursor:pointer;transition:.16s}
   .cascade-subnav button.on{background:var(--panel);color:var(--navy);box-shadow:0 4px 10px -6px rgba(22,49,92,.3)}
@@ -410,6 +410,26 @@
   .pair-locked.seed-mark{color:var(--accent)}
   .pair-locked.hard-mark{color:var(--good)}
 
+
+  /* Rest picker (кто отдыхает в след. туре) */
+  .rest-picker{margin-top:14px;padding:12px 14px;background:var(--bg-2);border:1px dashed var(--line-strong);border-radius:12px}
+  .rest-picker-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .rest-picker-head small{color:var(--navy-soft);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+  .rest-hint{color:var(--navy-soft);font-size:12px}
+  .rest-picker-list{display:flex;flex-wrap:wrap;gap:6px}
+  .rest-chip{appearance:none;border:1px solid var(--line-strong);background:#fffdf9;color:var(--navy);font-family:inherit;font-weight:600;font-size:13px;padding:6px 12px;border-radius:999px;cursor:pointer;transition:.14s}
+  .rest-chip:hover{border-color:var(--blue);color:var(--blue)}
+  .rest-chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .rest-empty{color:var(--navy-soft);font-size:12px;font-style:italic}
+
+  /* Delete round button */
+  .round-del{appearance:none;border:0;background:transparent;color:var(--bad);font-weight:700;font-size:14px;cursor:pointer;padding:4px 10px;border-radius:8px;font-family:inherit}
+  .round-del:hover{background:#f7e9e9}
+  .round-head-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sub-round-tools{display:flex;align-items:center;gap:6px}
+  .sub-round-del{appearance:none;border:0;background:transparent;color:var(--bad);font-weight:700;font-size:12px;cursor:pointer;padding:2px 8px;border-radius:6px;font-family:inherit}
+  .sub-round-del:hover{background:#f7e9e9}
+
   @media print{
     body{background:#fff}
     .tabs,.actions,.foot,header.top .sub,.score input,.controls,#saveBar,.standings-head .btn{display:none!important}
@@ -470,7 +490,6 @@
     <button class="tab" data-mode="pairs" role="tab">Готовые пары</button>
     <button class="tab" data-mode="restricted" role="tab">С ограничениями</button>
     <button class="tab" data-mode="solo" role="tab">Одиночки</button>
-    <button class="tab" data-mode="cascade" role="tab">Каскад</button>
     <button class="tab" data-mode="def" role="tab">3 группы (DEF)</button>
   </div>
 
@@ -478,7 +497,7 @@
   <div class="card" id="normalInputCard">
     <div id="single-input">
       <h2>Список игроков</h2>
-      <p class="hint">По одному имени в строке. Максимум 16. Пары — случайные, без повторов между турами.</p>
+      <p class="hint">По одному имени в строке. Пары — случайные, без повторов между турами. Число игроков не ограничено.</p>
       <div class="fld-row">
         <label class="fld" for="listA">Игроки</label>
         <span class="counter" id="countA">0 игроков</span>
@@ -521,7 +540,7 @@
 
     <div id="restricted-input" style="display:none">
       <h2>Американо с ограничениями</h2>
-      <p class="hint">Партнёры и соперники — случайные, как в обычном американо, но игроки из списка 1 никогда не окажутся партнёрами друг с другом (только с кем-то из списка 2). Игроки из списка 2 могут быть партнёрами с любыми. Без повторов пар между турами, максимум 24 игрока.</p>
+      <p class="hint">Партнёры и соперники — случайные, как в обычном американо, но игроки из списка 1 никогда не окажутся партнёрами друг с другом (только с кем-то из списка 2). Игроки из списка 2 могут быть партнёрами с любыми. Без повторов пар между турами. Число игроков не ограничено.</p>
       <div class="twocol">
         <div>
           <div class="fld-row">
@@ -593,6 +612,14 @@
       </div>
     </div>
 
+    <div class="rest-picker" id="restPickerRow">
+      <div class="rest-picker-head">
+        <small>Отдыхают в следующем туре (по желанию)</small>
+        <span class="rest-hint" id="restHint">Клик по имени — назначить отдых. Список сбрасывается автоматически после генерации тура.</span>
+      </div>
+      <div class="rest-picker-list" id="restPickerList"></div>
+    </div>
+
     <div class="actions">
       <button class="btn primary" id="addBtn">＋ Добавить тур(ы)</button>
       <button class="btn ghost" id="maxBtn">До максимума</button>
@@ -601,18 +628,6 @@
     </div>
     <div id="saveBar" class="saved-note"><span class="dot"></span><span id="saveText">Данные сохраняются автоматически на этом устройстве.</span></div>
     <div class="err" id="err"></div>
-  </div>
-
-  <!-- CASCADE (комбинированный турнир) -->
-  <div id="cascadeContainer" style="display:none">
-    <nav class="cascade-subnav" id="cascadeSubnav">
-      <button data-view="stage1" class="on"><span class="step-num">1.</span>Этап 1</button>
-      <button data-view="distribution"><span class="step-num">2.</span>Распределение</button>
-      <button data-view="stage2"><span class="step-num">3.</span>Этап 2</button>
-      <button data-view="totals"><span class="step-num">4.</span>Итоги</button>
-    </nav>
-    <div id="cascadeView"></div>
-    <div class="err" id="cascadeErr" style="margin-top:14px;display:none"></div>
   </div>
 
   <!-- 3 ГРУППЫ (DEF) -->
@@ -670,8 +685,8 @@ function sortSelectorHtml(groupId){
   return `<div class="sort-selector" data-sort-group="${groupId||'default'}">
     <span class="sort-label">Сортировка:</span>
     <div class="seg seg-sm">
-      <button type="button" data-sort="diff" class="${by==='diff'?'on':''}">Δ</button>
-      <button type="button" data-sort="avgDiff" class="${by==='avgDiff'?'on':''}">Среднее Δ</button>
+      <button type="button" data-sort="diff" class="${by==='diff'?'on':''}">Δ воланов</button>
+      <button type="button" data-sort="avgDiff" class="${by==='avgDiff'?'on':''}">Средняя Δ воланов</button>
     </div>
   </div>`;
 }
@@ -682,7 +697,6 @@ function attachSortHandlers(){
       setSortBy(btn.dataset.sort);
       // Пере-рендер всех активных представлений
       if(typeof renderAll === "function") renderAll();
-      if(typeof renderCascade === "function" && DB && DB.mode === "cascade") renderCascade();
       if(typeof renderDEF === "function" && DB && DB.mode === "def") renderDEF();
     };
   });
@@ -708,35 +722,29 @@ function blankState(){
     listR:"", listF:"",
     listS:"",           // список игроков для режима одиночек
     fixedPairs:[],
+    fixedPairsHistory:[],// «память» ранее фиксированных пар (чтобы не повторялись после снятия фикса)
+    forcedRest:[],       // игроки, которых пользователь вручную назначил в отдых на следующий тур
     rounds:[],
     usedPairs:[],
-    usedMatchups:[],
+    usedMatchups:[],     // mkey — использованные матчапы «пара против пары»
     playCount:{},
     name:"",
     createdAt:null,
-    cascade: blankCascade(),
     groupsDEF: blankGroupsDEF()
-  };
-}
-function blankCascade(){
-  return {
-    view: "stage1",
-    A: { input: "", rounds: [], usedPairs: [], playCount: {}, courts: 1 },
-    E: { input: "", rounds: [], usedMatchups: [], playCount: {}, courts: 2 },
-    F: { input: "", rounds: [], usedMatchups: [], usedPairs: [], playCount: {}, courts: 1 },
-    eAssign: {},
-    ABE: { inputStrong: "", inputWeak: "", autoStrong: "", autoWeak: "", rounds: [], usedPairs: [], playCount: {}, courts: 2 },
-    EF:  { rounds: [], usedPairs: [], playCount: {}, courts: 2 }
   };
 }
 function blankGroupDEF(){
   return {
-    input: "",         // список игроков (по одному в строке), макс 8
+    input: "",         // список игроков (по одному в строке); ограничения по числу нет
     hardPair: null,    // [a,b] или null — постоянная фикс. пара (не разбивается)
     seedPairs: [],     // [[a,b], ...] — «стартовые» фикс. пары для первых туров
     seedPlayed: [],    // pkey'и seed-пар, которые уже отыграли свой seed-тур
+    hardPairHistory: [], // pkey'и когда-то бывших постоянными пар
+    seedPairsHistory: [], // pkey'и когда-то бывших seed-пар (не повторяем)
+    forcedRest: [],    // игроки, которых пользователь назначил в отдых на следующий тур
     rounds: [],
     usedPairs: [],     // pkey формат: включает seed-пары после того, как они сыграли
+    usedMatchups: [],  // mkey — использованные матчапы (для авто-повторов кругов)
     playCount: {},
     courts: 1,
     cycle: 1
@@ -749,8 +757,11 @@ function blankDEFStage2(){
     autoList1: "",     // авто-сформированный из результатов Этапа 1
     autoList2: "",     // авто-сформированный из результатов Этапа 1
     fixedPairs: [],    // [[strong, weak], ...] — фикс. пары Этапа 2
+    fixedPairsHistory: [], // dkey'и когда-то бывших фикс. пар
+    forcedRest: [],    // игроки, которых пользователь назначил в отдых на следующий тур
     rounds: [],
     usedPairs: [],     // dkey формат
+    usedMatchups: [],  // mkey — использованные матчапы (для авто-повторов кругов)
     playCount: {},
     courts: 2,
     cycle: 1,
@@ -767,6 +778,8 @@ function blankGroupsDEF(){
   };
 }
 function migrateState(d){
+  // if mode was the removed "cascade", reset to "single"
+  if(d && d.mode === "cascade") d.mode = "single";
   // older versions used the NUL char (\u0000) as a pair separator, which
   // Postgres cannot store. Convert any legacy keys to the new separator.
   if(d && Array.isArray(d.usedPairs)){
@@ -784,6 +797,8 @@ function migrateState(d){
   if(d && typeof d.listS !== "string") d.listS = "";
   if(d && !(d.bestOf === 1 || d.bestOf === 2)) d.bestOf = 1;
   if(d && !(typeof d.cycle === "number" && d.cycle >= 1)) d.cycle = 1;
+  if(d && !Array.isArray(d.fixedPairsHistory)) d.fixedPairsHistory = [];
+  if(d && !Array.isArray(d.forcedRest)) d.forcedRest = [];
   // мигрируем игры: sa/sb → sets: [{sa, sb}]; проставляем cycle турам
   if(d && Array.isArray(d.rounds)){
     d.rounds.forEach(rd => {
@@ -800,22 +815,8 @@ function migrateState(d){
       }
     });
   }
-  // cascade added later
-  if(d && !d.cascade) d.cascade = blankCascade();
-  // ensure cascade sub-objects have all fields (newer additions: courts, ABE.inputStrong/Weak)
-  if(d && d.cascade){
-    const blank = blankCascade();
-    ["A","E","F","ABE","EF"].forEach(k => {
-      if(!d.cascade[k]) d.cascade[k] = blank[k];
-      else {
-        Object.keys(blank[k]).forEach(field => {
-          if(d.cascade[k][field] === undefined) d.cascade[k][field] = blank[k][field];
-        });
-      }
-    });
-    if(!d.cascade.eAssign) d.cascade.eAssign = {};
-    if(!d.cascade.view) d.cascade.view = "stage1";
-  }
+  // legacy: drop old cascade data if present
+  if(d && d.cascade) delete d.cascade;
   // groupsDEF added later
   if(d && !d.groupsDEF) d.groupsDEF = blankGroupsDEF();
   if(d && d.groupsDEF){
@@ -1519,6 +1520,97 @@ function buildRestrictedRound(listR, listF, constrainedSet, playCount, courts){
   return buildSingleRound(players, [], constrainedSet, playCount, courts);
 }
 
+
+/* ===== вспомогательные функции для новых возможностей ===== */
+
+function historyKeysToAvoid(){
+  const currentFixedKeys = new Set(
+    (getValidFixedPairs()||[]).map(p =>
+      DB.mode==="single" ? pkey(p[0],p[1]) : dkey(p[0],p[1])
+    )
+  );
+  const hist = Array.isArray(DB.fixedPairsHistory) ? DB.fixedPairsHistory : [];
+  return hist.filter(k => !currentFixedKeys.has(k));
+}
+
+function consumeForcedRest(){ DB.forcedRest = []; }
+
+function recomputeMainState(){
+  const upSet = new Set();
+  const umSet = new Set();
+  DB.playCount = {};
+  DB.rounds.forEach(rd => {
+    (rd.active||[]).forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
+    (rd.games||[]).forEach(g => {
+      const t1 = g.t1||[], t2 = g.t2||[];
+      if(DB.mode==="solo" && t1.length===1 && t2.length===1){
+        umSet.add(pkey(t1[0], t2[0]));
+      } else if(DB.mode==="pairs"){
+        umSet.add(mkey(t1, t2));
+      } else if(DB.mode==="double"){
+        if(!g.t1Fixed) upSet.add(dkey(t1[0], t1[1]));
+        if(!g.t2Fixed) upSet.add(dkey(t2[0], t2[1]));
+        umSet.add(mkey(t1, t2));
+      } else {
+        if(!g.t1Fixed) upSet.add(pkey(t1[0], t1[1]));
+        if(!g.t2Fixed) upSet.add(pkey(t2[0], t2[1]));
+        umSet.add(mkey(t1, t2));
+      }
+    });
+  });
+  DB.usedPairs = [...upSet];
+  DB.usedMatchups = [...umSet];
+  const maxCyc = DB.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
+  DB.cycle = maxCyc;
+}
+
+function deleteRound(index){
+  if(!Array.isArray(DB.rounds) || index<0 || index>=DB.rounds.length) return;
+  if(!confirm(`Удалить тур ${index+1}? Введённые в нём результаты будут потеряны.`)) return;
+  DB.rounds.splice(index, 1);
+  recomputeMainState();
+  saveDB();
+  renderAll();
+}
+
+function renderRestPicker(){
+  const row = document.getElementById("restPickerRow");
+  const list = document.getElementById("restPickerList");
+  if(!row || !list) return;
+  // Hide the row entirely in special modes
+  if(DB.mode==="def"){ row.style.display="none"; return; }
+  row.style.display="block";
+  let players = [];
+  if(DB.mode==="single") players = parseList(DB.listA);
+  else if(DB.mode==="double") players = [...parseList(DB.listM), ...parseList(DB.listW)];
+  else if(DB.mode==="pairs"){
+    const parsed = parsePairList(DB.listP);
+    players = parsed.allPlayers;
+  }
+  else if(DB.mode==="restricted") players = [...parseList(DB.listR), ...parseList(DB.listF)];
+  else if(DB.mode==="solo") players = parseList(DB.listS);
+  players = [...new Set(players)];
+  DB.forcedRest = (DB.forcedRest||[]).filter(p => players.includes(p));
+  if(!players.length){
+    list.innerHTML = '<span class="rest-empty">Сначала добавьте игроков.</span>';
+    return;
+  }
+  const restSet = new Set(DB.forcedRest);
+  list.innerHTML = players.map(p =>
+    `<button class="rest-chip${restSet.has(p)?' on':''}" type="button" data-rest-name="${esc(p)}">${esc(p)}</button>`
+  ).join("");
+  list.querySelectorAll("[data-rest-name]").forEach(btn => {
+    btn.onclick = () => {
+      const name = btn.dataset.restName;
+      const s = new Set(DB.forcedRest||[]);
+      if(s.has(name)) s.delete(name); else s.add(name);
+      DB.forcedRest = [...s];
+      saveDB();
+      renderRestPicker();
+    };
+  });
+}
+
 function addRounds(count, toMax){
   showErr("");
   syncInputsToDB();
@@ -1553,20 +1645,25 @@ function addRounds(count, toMax){
     }
     const pairs = parsed.pairs;
     if(pairs.length < 2){ showErr("Нужно минимум 2 пары."); return; }
-    if(parsed.allPlayers.length > 16){ showErr("Максимум 16 игроков (до 8 пар)."); return; }
 
     let usedMatchSet = new Set(DB.usedMatchups);
     const limit = toMax ? 999 : count;
     for(let i=0; i<limit; i++){
+      const forced = new Set(DB.forcedRest||[]);
+      const filtPairs = pairs.filter(p => !forced.has(p[0]) && !forced.has(p[1]));
+      const restForced = pairs.filter(p => forced.has(p[0]) || forced.has(p[1])).flat();
+      const usePairs = filtPairs.length>=2 ? filtPairs : pairs;
       const { rd, cycled } = tryBuildOne(
-        () => buildPairsRound(pairs, usedMatchSet, DB.playCount, courts),
+        () => buildPairsRound(usePairs, usedMatchSet, DB.playCount, courts),
         () => { usedMatchSet = new Set(); DB.cycle++; cycledInThisCall = true; }
       );
       if(!rd){ stopped = true; break; }
+      if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
       rd.cycle = DB.cycle;
       rd.games.forEach(g => { usedMatchSet.add(mkey(g.t1, g.t2)); });
       rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
       DB.rounds.push(rd); added++;
+      consumeForcedRest();
     }
     DB.usedMatchups = [...usedMatchSet];
   } else if(DB.mode==="restricted"){
@@ -1578,7 +1675,6 @@ function addRounds(count, toMax){
       if(rSet.has(p)){ showErr("«"+p+"» есть в обоих списках."); return; }
     }
     if(total < 4){ showErr("Нужно минимум 4 игрока (в двух списках суммарно)."); return; }
-    if(total > 24){ showErr("Максимум 24 игрока."); return; }
     if(listR.length === 0){
       showErr("Список 1 пуст — тогда это обычное американо, используйте вкладку «Один список».");
       return;
@@ -1590,13 +1686,20 @@ function addRounds(count, toMax){
       for(let j=i+1; j<listR.length; j++) rxrKeys.push(pkey(listR[i], listR[j]));
     }
     let usedSet = new Set(DB.usedPairs);
+    let usedMatchSet = new Set(DB.usedMatchups);
     let constrained = new Set(usedSet);
     rxrKeys.forEach(k => constrained.add(k));
 
     const limit = toMax ? 999 : count;
     for(let i=0; i<limit; i++){
+      const forced = new Set(DB.forcedRest||[]);
+      const activeR = listR.filter(p => !forced.has(p));
+      const activeF = listF.filter(p => !forced.has(p));
+      const forcedThisRound = [...listR, ...listF].filter(p => forced.has(p));
+      const useR = activeR.length ? activeR : listR;
+      const useF = activeF.length ? activeF : listF;
       const { rd } = tryBuildOne(
-        () => buildRestrictedRound(listR, listF, constrained, DB.playCount, courts),
+        () => buildRestrictedRound(useR, useF, constrained, DB.playCount, courts),
         () => {
           usedSet = new Set();
           constrained = new Set();
@@ -1605,35 +1708,44 @@ function addRounds(count, toMax){
         }
       );
       if(!rd){ stopped=true; break; }
+      if(forcedThisRound.length){ rd.resting = [...(rd.resting||[]), ...forcedThisRound.filter(p=>!(rd.resting||[]).includes(p))]; }
       rd.cycle = DB.cycle;
       rd.games.forEach(g=>{
         const k1 = pkey(g.t1[0], g.t1[1]);
         const k2 = pkey(g.t2[0], g.t2[1]);
         usedSet.add(k1); usedSet.add(k2);
         constrained.add(k1); constrained.add(k2);
+        usedMatchSet.add(mkey(g.t1, g.t2));
       });
       rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
       DB.rounds.push(rd); added++;
+      consumeForcedRest();
     }
     DB.usedPairs = [...usedSet];
+    DB.usedMatchups = [...usedMatchSet];
   } else if(DB.mode==="solo"){
     // Одиночки: 1×1, без партнёров, без повторов матчей.
     const players = parseList(DB.listS);
     if(players.length < 2){ showErr("Нужно минимум 2 игрока."); return; }
-    if(players.length > 16){ showErr("Максимум 16 игроков."); return; }
 
     let usedMatchSet = new Set(DB.usedMatchups);
     const limit = toMax ? 999 : count;
     for(let i=0; i<limit; i++){
+      const forced = new Set(DB.forcedRest||[]);
+      const active = players.filter(p => !forced.has(p));
+      const restForced = players.filter(p => forced.has(p));
+      const usePlayers = active.length>=2 ? active : players;
       const { rd } = tryBuildOne(
-        () => buildSoloRound(players, usedMatchSet, DB.playCount, courts),
+        () => buildSoloRound(usePlayers, usedMatchSet, DB.playCount, courts),
         () => { usedMatchSet = new Set(); DB.cycle++; cycledInThisCall = true; }
       );
       if(!rd){ stopped = true; break; }
+      if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
       rd.cycle = DB.cycle;
       rd.games.forEach(g => { usedMatchSet.add(pkey(g.t1[0], g.t2[0])); });
       rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
       DB.rounds.push(rd); added++;
+      consumeForcedRest();
     }
     DB.usedMatchups = [...usedMatchSet];
   } else {
@@ -1644,57 +1756,83 @@ function addRounds(count, toMax){
     if(DB.mode==="single"){
       const players=parseList(DB.listA);
       if(players.length<4){ showErr("Нужно минимум 4 игрока."); return; }
-      if(players.length>16){ showErr("Максимум 16 игроков."); return; }
       if(K > courts*2){
         showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
         return;
       }
+      // История когда-то фикс. пар — не собираем случайно
+      historyKeysToAvoid().forEach(k => usedSet.add(k));
+      let usedMatchSet = new Set(DB.usedMatchups);
       const allLocked = (K*2 === players.length);
       const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
       if(toMax && allLocked){
         showErr("Все игроки в фиксированных парах — добавляем "+limit+" тур(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
       }
       for(let i=0;i<limit;i++){
+        const forced = new Set(DB.forcedRest||[]);
+        const lockedPlayers = new Set(lockedPairs.flat());
+        // Если игрок из фикс. пары помечен как отдых — игнорируем этот выбор для него
+        lockedPlayers.forEach(p => { if(forced.has(p)) forced.delete(p); });
+        const active = players.filter(p => !forced.has(p));
+        const restForced = players.filter(p => forced.has(p));
+        const usePlayers = active.length >= Math.max(4, K*2) ? active : players;
         const { rd } = tryBuildOne(
-          () => buildSingleRound(players, lockedPairs, usedSet, DB.playCount, courts),
-          () => { usedSet = new Set(); DB.cycle++; cycledInThisCall = true; }
+          () => buildSingleRound(usePlayers, lockedPairs, usedSet, DB.playCount, courts),
+          () => { usedSet = new Set(); historyKeysToAvoid().forEach(k => usedSet.add(k)); DB.cycle++; cycledInThisCall = true; }
         );
         if(!rd){ stopped=true; break; }
+        if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
         rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(pkey(g.t1[0],g.t1[1]));
           if(!g.t2Fixed) usedSet.add(pkey(g.t2[0],g.t2[1]));
+          usedMatchSet.add(mkey(g.t1, g.t2));
         });
         rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
         DB.rounds.push(rd); added++;
+        consumeForcedRest();
       }
+      DB.usedMatchups = [...usedMatchSet];
     } else {
       const L1=parseList(DB.listM), L2=parseList(DB.listW);
       if(L1.length<2||L2.length<2){ showErr("В каждом списке минимум 2 человека."); return; }
-      if(L1.length+L2.length>16){ showErr("Максимум 16 игроков суммарно."); return; }
       if(K > courts*2){
         showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
         return;
       }
+      historyKeysToAvoid().forEach(k => usedSet.add(k));
+      let usedMatchSet = new Set(DB.usedMatchups);
       const allLocked = (K === Math.min(L1.length, L2.length)) && (K*2 === L1.length + L2.length);
       const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
       if(toMax && allLocked){
         showErr("Все игроки в фиксированных парах — добавляем "+limit+" тур(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
       }
       for(let i=0;i<limit;i++){
+        const forced = new Set(DB.forcedRest||[]);
+        const lockedPlayers = new Set(lockedPairs.flat());
+        lockedPlayers.forEach(p => { if(forced.has(p)) forced.delete(p); });
+        const activeL1 = L1.filter(p => !forced.has(p));
+        const activeL2 = L2.filter(p => !forced.has(p));
+        const restForced = [...L1, ...L2].filter(p => forced.has(p));
+        const useL1 = activeL1.length>=2 ? activeL1 : L1;
+        const useL2 = activeL2.length>=2 ? activeL2 : L2;
         const { rd } = tryBuildOne(
-          () => buildDoubleRound(L1,L2,lockedPairs,usedSet,DB.playCount,courts),
-          () => { usedSet = new Set(); DB.cycle++; cycledInThisCall = true; }
+          () => buildDoubleRound(useL1, useL2, lockedPairs, usedSet, DB.playCount, courts),
+          () => { usedSet = new Set(); historyKeysToAvoid().forEach(k => usedSet.add(k)); DB.cycle++; cycledInThisCall = true; }
         );
         if(!rd){ stopped=true; break; }
+        if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
         rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(dkey(g.t1[0],g.t1[1]));
           if(!g.t2Fixed) usedSet.add(dkey(g.t2[0],g.t2[1]));
+          usedMatchSet.add(mkey(g.t1, g.t2));
         });
         rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
         DB.rounds.push(rd); added++;
+        consumeForcedRest();
       }
+      DB.usedMatchups = [...usedMatchSet];
     }
     DB.usedPairs=[...usedSet];
   }
@@ -1746,13 +1884,13 @@ function renderStandings(){
   if(!rows.length || rows.every(r=>r.games===0)){ box.innerHTML=""; return; }
   let html=`<div class="card">
     <div class="standings-head">
-      <h2>Таблица — разница воланов</h2>
+      <h2>Таблица рейтинга — разница воланов</h2>
       <button class="btn ghost" id="clearScores">Очистить счёт</button>
     </div>
     ${sortSelectorHtml('main')}
     <table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ воланов</th><th class="num">Средняя Δ воланов</th>
     </tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     const cls=r.diff>0?"delta-pos":r.diff<0?"delta-neg":"delta-zero";
@@ -1832,7 +1970,10 @@ function renderRounds(){
     html+=`<div class="round">
       <div class="round-head">
         <div class="rname">Тур <span>${ri+1}</span>${cycleBadge}</div>
-        <div class="resting ${rd.resting&&rd.resting.length?"":"none"}">${rest}</div>
+        <div class="round-head-tools">
+          <div class="resting ${rd.resting&&rd.resting.length?"":"none"}">${rest}</div>
+          <button class="round-del" data-del-round="${ri}" type="button" title="Удалить этот тур">× удалить тур</button>
+        </div>
       </div><div class="games">`;
     rd.games.forEach((g,gi)=>{
       const hasFixed = g.t1Fixed || g.t2Fixed;
@@ -1884,1133 +2025,16 @@ function renderRounds(){
     });
     inp.addEventListener("change",()=>{ saveDB(); renderStandings(); });
   });
-}
-
-/* ===================== CASCADE TOURNAMENT ===================== */
-
-/* Конфиги подтурниров — параметры для каждого уровня */
-const CASCADE_CONFIG = {
-  A:   { label: "A",   title: "Уровень A",   desc: "До 7 человек, случайные партнёры, матчи в 2 сета.",                                       maxPlayers: 7,  courts: 1, type: "single",          bestOf: 2 },
-  E:   { label: "E",   title: "Уровень E",   desc: "До 10 человек, фиксированные пары, соперники случайные.",                                  maxPlayers: 10, courts: 2, type: "pairs" },
-  F:   { label: "F",   title: "Уровень F",   desc: "До 6 человек, готовые пары → после всех матчей переход в американо.",                       maxPlayers: 6,  courts: 1, type: "pairsThenSingle" },
-  ABE: { label: "ABE", title: "Уровень ABE", desc: "Микст «сильный × слабый». Заполни оба списка вручную из пула.",                             maxPlayers: 16, courts: 2, type: "double" },
-  EF:  { label: "EF",  title: "Уровень EF",  desc: "Классическое американо. Игроки берутся из F + назначенных в EF из уровня E.",               maxPlayers: 16, courts: 2, type: "single" }
-};
-
-/* ===== Helpers: lists, scored partnerships, distribution ===== */
-
-/* Игроки в подтурнире Этапа 1 по их inputs */
-function getCascadeStage1Players(level){
-  if(level === "A") return parseList(DB.cascade.A.input);
-  if(level === "E") return parsePairList(DB.cascade.E.input).allPlayers;
-  if(level === "F") return parsePairList(DB.cascade.F.input).allPlayers;
-  return [];
-}
-
-/* Все партнёрства с записанным счётом за Этап 1 (A best-of-2, E/F одиночный счёт).
-   На Этапе 2 эти партнёрства запрещены — людей не повторяем в тех же парах. */
-function getStage1ScoredPartnerships(){
-  const result = [];
-  const collect = (rounds, isBestOf2) => {
-    rounds.forEach(rd => {
-      rd.games.forEach(g => {
-        let hasScore = false;
-        if(isBestOf2 && g.sets){
-          hasScore = g.sets.some(s => s.sa !== "" && s.sb !== "" && !isNaN(parseInt(s.sa,10)) && !isNaN(parseInt(s.sb,10)));
-        } else {
-          hasScore = g.sa !== "" && g.sb !== "" && !isNaN(parseInt(g.sa,10)) && !isNaN(parseInt(g.sb,10));
-        }
-        if(hasScore){
-          result.push([g.t1[0], g.t1[1]]);
-          result.push([g.t2[0], g.t2[1]]);
-        }
-      });
-    });
-  };
-  collect(DB.cascade.A.rounds, true);
-  collect(DB.cascade.E.rounds, false);
-  collect(DB.cascade.F.rounds, false);
-  return result;
-}
-
-/* Распределение: A→ABE автоматом, F→EF автоматом, E — по DB.cascade.eAssign */
-function getDistributedPlayers(){
-  const a = getCascadeStage1Players("A");
-  const e = getCascadeStage1Players("E");
-  const f = getCascadeStage1Players("F");
-  const eABE = e.filter(p => DB.cascade.eAssign[p] === "ABE");
-  const eEF  = e.filter(p => DB.cascade.eAssign[p] === "EF");
-  const eUnassigned = e.filter(p => !DB.cascade.eAssign[p]);
-  const abePool = [...a, ...eABE];
-  const efPool  = [...f, ...eEF];
-  return { a, e, f, eABE, eEF, eUnassigned, abePool, efPool };
-}
-
-/* ===== Авто-списки ABE: A → сильные, E(в ABE) → слабые =====
-   Тексты в textarea «сильные»/«слабые» подставляются автоматически из распределения.
-   Если пользователь руками изменил список, при следующем рендере мы не перезаписываем
-   его правки — отслеживаем последнее авто-значение в autoStrong/autoWeak и сверяемся
-   с текущим вводом. Кнопка «Сбросить к авто» делает форсированную пересинхронизацию. */
-function getAutoABELists(){
-  const d = getDistributedPlayers();
-  return {
-    strong: d.a.join("\n"),
-    weak:   d.eABE.join("\n"),
-  };
-}
-function syncABEAutoLists(force){
-  const sub = DB.cascade.ABE;
-  const auto = getAutoABELists();
-  // если пользователь не правил список (или он пуст), либо force — обновляем из авто
-  if(force || sub.inputStrong === "" || sub.inputStrong === sub.autoStrong){
-    sub.inputStrong = auto.strong;
-  }
-  if(force || sub.inputWeak === "" || sub.inputWeak === sub.autoWeak){
-    sub.inputWeak = auto.weak;
-  }
-  sub.autoStrong = auto.strong;
-  sub.autoWeak = auto.weak;
-}
-
-function cascadeShowErr(msg){
-  const e = $("#cascadeErr");
-  if(!msg){ e.style.display="none"; e.textContent=""; return; }
-  e.textContent = msg; e.style.display = "block";
-  e.classList.add("show");
-}
-
-/* Получить все "сыгранные" партнёрства (с записанным счётом) из набора туров */
-function scoredPartnershipsFromRounds(rounds, isBestOf2){
-  const set = new Set();
-  rounds.forEach(rd => {
-    rd.games.forEach(g => {
-      const hasScore = isBestOf2
-        ? (g.sets && g.sets.some(s => s.sa !== "" && s.sb !== ""))
-        : (g.sa !== "" && g.sb !== "");
-      if(hasScore){
-        set.add(pkey(g.t1[0], g.t1[1]));
-        set.add(pkey(g.t2[0], g.t2[1]));
-      }
-    });
-  });
-  return set;
-}
-
-/* Уровень F: проверка, что фаза готовых пар отыграна (все возможные матчи между парами добавлены как туры) */
-function fPairsPhaseExhausted(){
-  const F = DB.cascade.F;
-  const parsed = parsePairList(F.input);
-  const P = parsed.pairs.length;
-  if(P < 2) return false;
-  const expectedMatchups = P * (P-1) / 2;
-  const pairsPhaseRounds = F.rounds.filter(r => r.phase === "pairs");
-  let totalMatchups = 0;
-  pairsPhaseRounds.forEach(r => totalMatchups += r.games.length);
-  return totalMatchups >= expectedMatchups;
-}
-
-/* ===== Добавление тура в подтурнир уровня A ===== */
-function cascadeAddRoundA(toMax){
-  cascadeShowErr("");
-  const cfg = CASCADE_CONFIG.A;
-  const sub = DB.cascade.A;
-  const players = parseList(sub.input);
-  if(players.length < 4){ cascadeShowErr("Уровень A: нужно минимум 4 игрока."); return; }
-  if(players.length > cfg.maxPlayers){ cascadeShowErr(`Уровень A: максимум ${cfg.maxPlayers} игроков.`); return; }
-  const usedSet = new Set(sub.usedPairs);
-  let added = 0;
-  const limit = toMax ? 999 : 1;
-  const courts = sub.courts || cfg.courts;
-  for(let i=0; i<limit; i++){
-    const rd = buildSingleRound(players, [], usedSet, sub.playCount, courts);
-    if(!rd){ break; }
-    // переделываем под best-of-2: каждая игра получает массив сетов
-    rd.games.forEach(g => {
-      g.sets = [{sa:"", sb:""}, {sa:"", sb:""}];
-      delete g.sa; delete g.sb;
-      usedSet.add(pkey(g.t1[0], g.t1[1]));
-      usedSet.add(pkey(g.t2[0], g.t2[1]));
-    });
-    rd.active.forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
-    sub.rounds.push(rd); added++;
-  }
-  sub.usedPairs = [...usedSet];
-  if(added === 0) cascadeShowErr("Уровень A: новые туры невозможны — все партнёрства исчерпаны.");
-  saveDB(); renderCascade();
-}
-
-/* ===== Добавление тура в подтурнир уровня E ===== */
-function cascadeAddRoundE(toMax){
-  cascadeShowErr("");
-  const cfg = CASCADE_CONFIG.E;
-  const sub = DB.cascade.E;
-  const parsed = parsePairList(sub.input);
-  if(parsed.errors.length){
-    cascadeShowErr(`Уровень E, строка ${parsed.errors[0].line}: ${parsed.errors[0].msg}.`); return;
-  }
-  if(parsed.pairs.length < 2){ cascadeShowErr("Уровень E: нужно минимум 2 пары."); return; }
-  if(parsed.allPlayers.length > cfg.maxPlayers){ cascadeShowErr(`Уровень E: максимум ${cfg.maxPlayers} игроков.`); return; }
-  const usedMatchSet = new Set(sub.usedMatchups);
-  let added = 0;
-  const limit = toMax ? 999 : 1;
-  const courts = sub.courts || cfg.courts;
-  for(let i=0; i<limit; i++){
-    const rd = buildPairsRound(parsed.pairs, usedMatchSet, sub.playCount, courts);
-    if(!rd) break;
-    rd.games.forEach(g => { usedMatchSet.add(mkey(g.t1, g.t2)); });
-    rd.active.forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
-    sub.rounds.push(rd); added++;
-  }
-  sub.usedMatchups = [...usedMatchSet];
-  if(added === 0) cascadeShowErr("Уровень E: все матчи между парами уже сыграны.");
-  saveDB(); renderCascade();
-}
-
-/* ===== Добавление тура в подтурнир уровня F ===== */
-function cascadeAddRoundF(toMax){
-  cascadeShowErr("");
-  const cfg = CASCADE_CONFIG.F;
-  const sub = DB.cascade.F;
-  const parsed = parsePairList(sub.input);
-  if(parsed.errors.length){
-    cascadeShowErr(`Уровень F, строка ${parsed.errors[0].line}: ${parsed.errors[0].msg}.`); return;
-  }
-  if(parsed.pairs.length < 2){ cascadeShowErr("Уровень F: нужно минимум 2 пары."); return; }
-  if(parsed.allPlayers.length > cfg.maxPlayers){ cascadeShowErr(`Уровень F: максимум ${cfg.maxPlayers} игроков.`); return; }
-
-  const limit = toMax ? 999 : 1;
-  let added = 0;
-  const courts = sub.courts || cfg.courts;
-  // Фаза 1: матчи между готовыми парами
-  if(!fPairsPhaseExhausted()){
-    const usedMatchSet = new Set(sub.usedMatchups);
-    while(added < limit){
-      if(fPairsPhaseExhausted()){ break; }
-      const rd = buildPairsRound(parsed.pairs, usedMatchSet, sub.playCount, courts);
-      if(!rd) break;
-      rd.phase = "pairs";
-      rd.games.forEach(g => { usedMatchSet.add(mkey(g.t1, g.t2)); });
-      rd.active.forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
-      sub.rounds.push(rd); added++;
-    }
-    sub.usedMatchups = [...usedMatchSet];
-  }
-  // Фаза 2: американо. Партнёрства из фикс. пар (всегда) + всех предыдущих american-туров — запрещены
-  if(added < limit && fPairsPhaseExhausted()){
-    const players = parsed.allPlayers;
-    const usedSet = new Set();
-    // ВСЕ партнёрства из исходных фикс. пар уровня F — они не должны повторяться в американо
-    parsed.pairs.forEach(p => usedSet.add(pkey(p[0], p[1])));
-    // все партнёрства из уже сгенерированных туров фазы 2 (american)
-    sub.rounds.filter(r => r.phase === "american").forEach(r => {
-      r.games.forEach(g => {
-        usedSet.add(pkey(g.t1[0], g.t1[1]));
-        usedSet.add(pkey(g.t2[0], g.t2[1]));
-      });
-    });
-    while(added < limit){
-      const rd = buildSingleRound(players, [], usedSet, sub.playCount, courts);
-      if(!rd) break;
-      rd.phase = "american";
-      rd.games.forEach(g => {
-        usedSet.add(pkey(g.t1[0], g.t1[1]));
-        usedSet.add(pkey(g.t2[0], g.t2[1]));
-      });
-      rd.active.forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
-      sub.rounds.push(rd); added++;
-    }
-    sub.usedPairs = [...usedSet];
-  }
-
-  if(added === 0){
-    if(!fPairsPhaseExhausted()){
-      cascadeShowErr("Уровень F: не удалось добавить тур фазы готовых пар.");
-    } else {
-      cascadeShowErr("Уровень F: больше нет возможных партнёрств в фазе американо.");
-    }
-  }
-  saveDB(); renderCascade();
-}
-
-/* ===== Добавление тура в подтурнир ABE (Этап 2, double) ===== */
-function cascadeAddRoundABE(toMax){
-  cascadeShowErr("");
-  const cfg = CASCADE_CONFIG.ABE;
-  const sub = DB.cascade.ABE;
-  const strong = parseList(sub.inputStrong);
-  const weak = parseList(sub.inputWeak);
-  if(strong.length < 1 || weak.length < 1){
-    cascadeShowErr("ABE: оба списка (сильные и слабые) должны быть заполнены."); return;
-  }
-  const total = strong.length + weak.length;
-  if(total > cfg.maxPlayers){
-    cascadeShowErr(`ABE: максимум ${cfg.maxPlayers} игроков (сейчас ${total}).`); return;
-  }
-  // Дубли между списками
-  const sSet = new Set(strong);
-  for(const p of weak){
-    if(sSet.has(p)){ cascadeShowErr(`ABE: «${p}» указан и в сильных, и в слабых.`); return; }
-  }
-  const wSet = new Set(weak);
-
-  // usedSet = ранее сыгранные туры ABE + партнёрства с записанным счётом из Этапа 1
-  // (переводим pkey-пары Этапа 1 в dkey, если игроки попали на разные стороны strong/weak)
-  const usedSet = new Set(sub.usedPairs);
-  getStage1ScoredPartnerships().forEach(([a,b]) => {
-    if(sSet.has(a) && wSet.has(b)) usedSet.add(dkey(a,b));
-    if(sSet.has(b) && wSet.has(a)) usedSet.add(dkey(b,a));
-  });
-
-  const courts = sub.courts || cfg.courts;
-  let added = 0;
-  const limit = toMax ? 999 : 1;
-  for(let i=0; i<limit; i++){
-    const rd = buildDoubleRound(strong, weak, [], usedSet, sub.playCount, courts);
-    if(!rd) break;
-    rd.games.forEach(g => {
-      usedSet.add(dkey(g.t1[0], g.t1[1]));
-      usedSet.add(dkey(g.t2[0], g.t2[1]));
-    });
-    rd.active.forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
-    sub.rounds.push(rd); added++;
-  }
-  sub.usedPairs = [...usedSet];
-  if(added === 0){
-    cascadeShowErr("ABE: новые туры невозможны — все пары «сильный × слабый» уже сыграны (включая партнёрства из Этапа 1).");
-  }
-  saveDB(); renderCascade();
-}
-
-/* ===== Добавление тура в подтурнир EF (Этап 2, single американо) ===== */
-function cascadeAddRoundEF(toMax){
-  cascadeShowErr("");
-  const cfg = CASCADE_CONFIG.EF;
-  const sub = DB.cascade.EF;
-  const { efPool } = getDistributedPlayers();
-  if(efPool.length < 4){ cascadeShowErr("EF: нужно минимум 4 игрока."); return; }
-  if(efPool.length > cfg.maxPlayers){
-    cascadeShowErr(`EF: максимум ${cfg.maxPlayers} игроков (сейчас ${efPool.length}).`); return;
-  }
-
-  // usedSet = ранее сыгранные туры EF + партнёрства с записанным счётом из Этапа 1
-  // (только для тех, кто в efPool — иначе ограничение не имеет смысла)
-  const usedSet = new Set(sub.usedPairs);
-  const efSet = new Set(efPool);
-  getStage1ScoredPartnerships().forEach(([a,b]) => {
-    if(efSet.has(a) && efSet.has(b)) usedSet.add(pkey(a,b));
-  });
-
-  const courts = sub.courts || cfg.courts;
-  let added = 0;
-  const limit = toMax ? 999 : 1;
-  for(let i=0; i<limit; i++){
-    const rd = buildSingleRound(efPool, [], usedSet, sub.playCount, courts);
-    if(!rd) break;
-    rd.games.forEach(g => {
-      usedSet.add(pkey(g.t1[0], g.t1[1]));
-      usedSet.add(pkey(g.t2[0], g.t2[1]));
-    });
-    rd.active.forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
-    sub.rounds.push(rd); added++;
-  }
-  sub.usedPairs = [...usedSet];
-  if(added === 0){
-    cascadeShowErr("EF: новые туры невозможны — все партнёрства уже сыграны (включая пары из Этапа 1).");
-  }
-  saveDB(); renderCascade();
-}
-
-/* ===== Рендер одного тура в подпанели (без больших полей счёта) ===== */
-function renderSubRound(rd, ri, subKey, opts){
-  const isBestOf2 = !!(opts && opts.bestOf2);
-  const restText = (rd.resting && rd.resting.length)
-    ? `Отдыхают: ${rd.resting.map(esc).join(", ")}`
-    : "Все играют";
-  const phaseTag = rd.phase
-    ? `<span class="phase-marker ${rd.phase==="pairs"?"pairs":"american"}">${rd.phase==="pairs"?"фикс. пары":"американо"}</span>`
-    : "";
-  let html = `<div class="sub-round" data-r="${ri}">
-    <div class="sub-round-head">
-      <span class="rname">Тур <span>${ri+1}</span>${phaseTag}</span>
-      <span class="rest ${rd.resting&&rd.resting.length?'':'none'}">${restText}</span>
-    </div>`;
-  rd.games.forEach((g, gi) => {
-    let scoresHtml;
-    if(isBestOf2){
-      const sets = g.sets || [{sa:"",sb:""},{sa:"",sb:""}];
-      scoresHtml = `<div class="scs">
-        ${sets.map((s, si) => `
-          <div class="scs-set"><small>${si+1}</small>
-            <input data-sub="${subKey}" data-r="${ri}" data-g="${gi}" data-set="${si}" data-side="a" inputmode="numeric" maxlength="2" value="${esc(s.sa||"")}">
-            <span class="col">:</span>
-            <input data-sub="${subKey}" data-r="${ri}" data-g="${gi}" data-set="${si}" data-side="b" inputmode="numeric" maxlength="2" value="${esc(s.sb||"")}">
-          </div>
-        `).join("")}
-      </div>`;
-    } else {
-      scoresHtml = `<div class="scs">
-        <input data-sub="${subKey}" data-r="${ri}" data-g="${gi}" data-side="a" inputmode="numeric" maxlength="2" value="${esc(g.sa||"")}">
-        <span class="col">:</span>
-        <input data-sub="${subKey}" data-r="${ri}" data-g="${gi}" data-side="b" inputmode="numeric" maxlength="2" value="${esc(g.sb||"")}">
-      </div>`;
-    }
-    html += `<div class="sub-game">
-      <span class="ct">К${g.court}</span>
-      <span class="tm">${esc(g.t1[0])} + ${esc(g.t1[1])}</span>
-      <span class="vsm">vs</span>
-      <span class="tm tm-right">${esc(g.t2[0])} + ${esc(g.t2[1])}</span>
-      ${scoresHtml}
-    </div>`;
-  });
-  html += `</div>`;
-  return html;
-}
-
-/* ===== Рендер одной подпанели Этапа 1 ===== */
-function renderSubPanel(key, opts){
-  const cfg = CASCADE_CONFIG[key];
-  const sub = DB.cascade[key];
-  const cls = key.toLowerCase();
-  let playerCount = 0, pairsInfo = "";
-  if(cfg.type === "single"){
-    playerCount = parseList(sub.input).length;
-  } else if(cfg.type === "pairs" || cfg.type === "pairsThenSingle"){
-    const p = parsePairList(sub.input);
-    playerCount = p.allPlayers.length;
-    pairsInfo = p.pairs.length ? ` · ${p.pairs.length} пар` : "";
-  }
-  const overLimit = playerCount > cfg.maxPlayers;
-  const curCourts = sub.courts || cfg.courts;
-
-  // Заголовок панели
-  let html = `<div class="sub-panel lvl-${cls}">
-    <div class="sub-head">
-      <div class="sub-title">
-        <span class="sub-badge ${cls}">${cfg.label}</span>
-        <h3 class="sub-h">${cfg.title}</h3>
-      </div>
-      <span class="sub-meta">${playerCount}/${cfg.maxPlayers} игроков${pairsInfo}</span>
-    </div>
-    <p class="sub-desc">${cfg.desc}</p>
-    <div class="sub-courts">кортов:
-      <div class="seg" data-cascade-courts="${key}">
-        ${[1,2,3,4].map(c => `<button data-c="${c}" class="${c===curCourts?'on':''}">${c}</button>`).join("")}
-      </div>
-    </div>`;
-
-  // Ввод
-  if(cfg.type === "single"){
-    html += `<div class="sub-input">
-      <textarea id="cascadeInput${key}" placeholder="По одному имени в строке">${esc(sub.input)}</textarea>
-    </div>`;
-  } else {
-    html += `<div class="sub-input">
-      <textarea id="cascadeInput${key}" placeholder="Аня + Борис&#10;Вера + Глеб">${esc(sub.input)}</textarea>
-    </div>`;
-  }
-  if(overLimit){
-    html += `<p class="sub-desc" style="color:var(--bad)">Игроков больше лимита (${cfg.maxPlayers}).</p>`;
-  }
-
-  // Кнопки управления
-  html += `<div class="sub-controls">
-    <button class="btn primary" data-cascade-add="${key}">＋ Тур</button>
-    <button class="btn ghost" data-cascade-max="${key}">До максимума</button>
-    <button class="btn danger" data-cascade-reset="${key}">Сброс туров</button>
-  </div>`;
-
-  // Туры
-  if(sub.rounds.length){
-    html += `<div class="sub-rounds">`;
-    sub.rounds.forEach((rd, ri) => {
-      html += renderSubRound(rd, ri, key, { bestOf2: cfg.bestOf === 2 });
-    });
-    html += `</div>`;
-  } else {
-    html += `<div class="sub-empty">Туров пока нет. Введите состав и нажмите «Тур».</div>`;
-  }
-
-  html += `</div>`;
-  return html;
-}
-
-/* ===== Рендер: общая таблица результатов Этапа 1 ===== */
-function computeCascadeStandings(scope){
-  /* scope: "stage1" | "all" — какие подтурниры учитывать
-     Возвращает массив объектов с полями: name, level, games, wins, scored, conceded, diff */
-  const stat = {};
-  const touch = (n, level) => {
-    if(!stat[n]) stat[n] = { name: n, level, games: 0, wins: 0, scored: 0, conceded: 0, diff: 0 };
-    return stat[n];
-  };
-
-  function processRounds(rounds, level, isBestOf2){
-    rounds.forEach(rd => {
-      rd.games.forEach(g => {
-        const t1 = [g.t1[0], g.t1[1]], t2 = [g.t2[0], g.t2[1]];
-        let aSum = 0, bSum = 0, anyScore = false;
-        if(isBestOf2 && g.sets){
-          g.sets.forEach(s => {
-            const a = parseInt(s.sa, 10), b = parseInt(s.sb, 10);
-            if(!isNaN(a) && !isNaN(b)){ aSum += a; bSum += b; anyScore = true; }
-          });
-        } else {
-          const a = parseInt(g.sa, 10), b = parseInt(g.sb, 10);
-          if(!isNaN(a) && !isNaN(b)){ aSum = a; bSum = b; anyScore = true; }
-        }
-        if(!anyScore) return;
-        [...t1, ...t2].forEach(p => touch(p, level).games++);
-        const d = aSum - bSum;
-        t1.forEach(p => { const s = touch(p, level); s.scored += aSum; s.conceded += bSum; s.diff += d; if(d > 0) s.wins++; });
-        t2.forEach(p => { const s = touch(p, level); s.scored += bSum; s.conceded += aSum; s.diff -= d; if(d < 0) s.wins++; });
-      });
-    });
-  }
-
-  processRounds(DB.cascade.A.rounds, "A", true);
-  processRounds(DB.cascade.E.rounds, "E", false);
-  processRounds(DB.cascade.F.rounds, "F", false);
-
-  return finalizeStandings(Object.values(stat));
-}
-
-function renderCascadeStandingsCard(){
-  const rows = computeCascadeStandings("stage1");
-  if(!rows.length) return "";
-  let html = `<div class="card" style="margin-bottom:14px">
-    <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 12px;font-weight:800">Общая таблица — Этап 1</h2>
-    ${sortSelectorHtml('cascade-stage1')}
-    <table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th>Ур.</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
-    </tr></thead><tbody>`;
-  rows.forEach((r, i) => {
-    const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
-    const sign = r.diff > 0 ? "+" : "";
-    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
-    html += `<tr class="${i===0?'top1':''}">
-      <td class="rank">${i+1}</td>
-      <td class="name">${esc(r.name)}</td>
-      <td><span class="lvl-badge-inline ${r.level.toLowerCase()}">${r.level}</span></td>
-      <td class="num">${r.games}</td>
-      <td class="num">${r.wins}</td>
-      <td class="num">${r.scored}</td>
-      <td class="num">${r.conceded}</td>
-      <td class="num ${cls}">${sign}${r.diff}</td>
-      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
-    </tr>`;
-  });
-  html += `</tbody></table></div>`;
-  return html;
-}
-
-/* ===== Рендер представления Этапа 1 ===== */
-function renderCascadeStage1(){
-  const view = $("#cascadeView");
-  let html = renderCascadeStandingsCard();
-  html += renderSubPanel("A");
-  html += renderSubPanel("E");
-  html += renderSubPanel("F");
-  view.innerHTML = html;
-  attachCascadeStage1Handlers();
-}
-
-/* ===== Рендер: Распределение игроков ===== */
-function renderCascadeDistribution(){
-  const d = getDistributedPlayers();
-  const cfgABE = CASCADE_CONFIG.ABE;
-  const cfgEF  = CASCADE_CONFIG.EF;
-
-  let html = `<div class="card">
-    <h2 style="font-family:'Fraunces',serif;font-size:20px;margin:0 0 4px;font-weight:800">Распределение игроков</h2>
-    <p class="hint" style="margin:0 0 14px">Уровень A автоматически идёт в ABE, уровень F — в EF. Игроки уровня E распределяются вручную. Распределение можно сделать до или после Этапа 1.</p>
-
-    <div class="dist-auto">
-      <div class="dist-section">
-        <span class="lvl-badge-inline a">A</span>
-        <span class="arrow">→</span>
-        <span class="lvl-badge-inline abe">ABE</span>
-        <p class="ppl${d.a.length?'':' empty'}">${d.a.length ? d.a.map(esc).join(", ") : "пока никого"}</p>
-        <span class="cnt">${d.a.length}</span>
-      </div>
-      <div class="dist-section">
-        <span class="lvl-badge-inline f">F</span>
-        <span class="arrow">→</span>
-        <span class="lvl-badge-inline ef">EF</span>
-        <p class="ppl${d.f.length?'':' empty'}">${d.f.length ? d.f.map(esc).join(", ") : "пока никого"}</p>
-        <span class="cnt">${d.f.length}</span>
-      </div>
-    </div>
-
-    <h3 class="dist-eheader">Уровень E — куда?</h3>`;
-
-  if(d.e.length === 0){
-    html += `<div class="dist-empty-e">На уровне E пока нет игроков. Заполните их в Этапе 1.</div>`;
-  } else {
-    html += `<div class="dist-list">`;
-    d.e.forEach(name => {
-      const cur = DB.cascade.eAssign[name] || "";
-      html += `<div class="dist-row">
-        <span class="name">${esc(name)}</span>
-        <div class="seg-mini">
-          <button data-edist="${esc(name)}" data-to="ABE" class="${cur==="ABE"?'on abe':''}">→ ABE</button>
-          <button data-edist="${esc(name)}" data-to="EF" class="${cur==="EF"?'on ef':''}">→ EF</button>
-        </div>
-      </div>`;
-    });
-    html += `</div>`;
-
-    if(d.eUnassigned.length){
-      html += `<p class="hint" style="margin:10px 0 0;color:var(--accent)">Без назначения: ${d.eUnassigned.map(esc).join(", ")}. Эти игроки не попадут в Этап 2, пока не выберешь.</p>`;
-    }
-  }
-
-  // Итог
-  const abeOver = d.abePool.length > cfgABE.maxPlayers;
-  const efOver  = d.efPool.length > cfgEF.maxPlayers;
-  html += `<div class="dist-summary">
-    <div class="dist-sumrow">
-      <span class="lvl-badge-inline abe">ABE</span>
-      <span class="count${abeOver?' warn':''}">${d.abePool.length}/${cfgABE.maxPlayers}</span>
-      <span class="names${d.abePool.length?'':' empty'}">${d.abePool.length ? d.abePool.map(esc).join(", ") : "пока никого"}</span>
-    </div>
-    <div class="dist-sumrow">
-      <span class="lvl-badge-inline ef">EF</span>
-      <span class="count${efOver?' warn':''}">${d.efPool.length}/${cfgEF.maxPlayers}</span>
-      <span class="names${d.efPool.length?'':' empty'}">${d.efPool.length ? d.efPool.map(esc).join(", ") : "пока никого"}</span>
-    </div>
-  </div>`;
-
-  if(abeOver){
-    html += `<p class="hint" style="margin:10px 0 0;color:var(--bad)">В пуле ABE больше ${cfgABE.maxPlayers} игроков — кого-то нужно перевести в EF.</p>`;
-  }
-
-  html += `</div>`;
-
-  $("#cascadeView").innerHTML = html;
-  attachCascadeDistributionHandlers();
-}
-
-/* ===== Сводный рейтинг с разделением на «всего» и «вклад Этапа 2» =====
-   Возвращает массив объектов с полями: name, level (уровень Этапа 1),
-   games/wins/scored/conceded/diff (суммарно по всем сыгранным матчам),
-   games2/wins2/scored2/conceded2/diff2 (только Этап 2 — ABE+EF). */
-function computeCascadeStandingsAllWithStage2Delta(){
-  const stat = {};
-  const touch = (n, level) => {
-    if(!stat[n]) stat[n] = {
-      name: n, level,
-      games: 0, wins: 0, scored: 0, conceded: 0, diff: 0,
-      games2: 0, wins2: 0, scored2: 0, conceded2: 0, diff2: 0,
-    };
-    // если первый раз игрок встретился без уровня, а позже мы знаем уровень — обновим
-    else if(stat[n].level === "—" && level !== "—") stat[n].level = level;
-    return stat[n];
-  };
-
-  function processRounds(rounds, level, isBestOf2, isStage2){
-    rounds.forEach(rd => {
-      rd.games.forEach(g => {
-        const t1 = [g.t1[0], g.t1[1]], t2 = [g.t2[0], g.t2[1]];
-        let aSum = 0, bSum = 0, anyScore = false;
-        if(isBestOf2 && g.sets){
-          g.sets.forEach(s => {
-            const a = parseInt(s.sa, 10), b = parseInt(s.sb, 10);
-            if(!isNaN(a) && !isNaN(b)){ aSum += a; bSum += b; anyScore = true; }
-          });
-        } else {
-          const a = parseInt(g.sa, 10), b = parseInt(g.sb, 10);
-          if(!isNaN(a) && !isNaN(b)){ aSum = a; bSum = b; anyScore = true; }
-        }
-        if(!anyScore) return;
-        const d = aSum - bSum;
-        t1.forEach(p => {
-          const s = touch(p, level);
-          s.games++; s.scored += aSum; s.conceded += bSum; s.diff += d;
-          if(d > 0) s.wins++;
-          if(isStage2){
-            s.games2++; s.scored2 += aSum; s.conceded2 += bSum; s.diff2 += d;
-            if(d > 0) s.wins2++;
-          }
-        });
-        t2.forEach(p => {
-          const s = touch(p, level);
-          s.games++; s.scored += bSum; s.conceded += aSum; s.diff -= d;
-          if(d < 0) s.wins++;
-          if(isStage2){
-            s.games2++; s.scored2 += bSum; s.conceded2 += aSum; s.diff2 -= d;
-            if(d < 0) s.wins2++;
-          }
-        });
-      });
-    });
-  }
-
-  // Этап 1 идёт первым, чтобы уровень (A/E/F) сохранился для всех игроков
-  processRounds(DB.cascade.A.rounds, "A", true, false);
-  processRounds(DB.cascade.E.rounds, "E", false, false);
-  processRounds(DB.cascade.F.rounds, "F", false, false);
-  // Этап 2 — уровень "—" (если игрок впервые появился здесь)
-  processRounds(DB.cascade.ABE.rounds, "—", false, true);
-  processRounds(DB.cascade.EF.rounds,  "—", false, true);
-
-  // avgDiff2 — среднее Δ по Этапу 2 (нужно для отдельной колонки)
-  const rows = Object.values(stat);
-  rows.forEach(r => { r.avgDiff2 = r.games2 > 0 ? r.diff2 / r.games2 : 0; });
-  return finalizeStandings(rows);
-}
-
-function renderCascadeStage2StandingsCard(){
-  const rows = computeCascadeStandingsAllWithStage2Delta();
-  if(!rows.length){
-    return `<div class="card" style="margin-bottom:14px">
-      <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 6px;font-weight:800">Общая таблица — оба этапа</h2>
-      <p class="hint" style="margin:0;text-align:center">Пока нет сыгранных матчей со счётом.</p>
-    </div>`;
-  }
-  let html = `<div class="card" style="margin-bottom:14px">
-    <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 12px;font-weight:800">Общая таблица — оба этапа</h2>
-    ${sortSelectorHtml('cascade-all')}
-    <table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th>Ур.</th>
-      <th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
-      <th class="num">Δ Эт.2</th><th class="num">Ср. Δ Эт.2</th>
-    </tr></thead><tbody>`;
-  rows.forEach((r, i) => {
-    const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
-    const sign = r.diff > 0 ? "+" : "";
-    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
-    const cls2 = r.diff2 > 0 ? "delta-pos" : r.diff2 < 0 ? "delta-neg" : "delta-zero";
-    const sign2 = r.diff2 > 0 ? "+" : "";
-    const clsA2 = r.avgDiff2 > 0 ? "delta-pos" : r.avgDiff2 < 0 ? "delta-neg" : "delta-zero";
-    const lvlBadge = r.level === "—"
-      ? `<span style="color:var(--navy-soft);font-size:11px">—</span>`
-      : `<span class="lvl-badge-inline ${r.level.toLowerCase()}">${r.level}</span>`;
-    const gamesCell = r.games2 > 0
-      ? `${r.games} <span style="color:var(--navy-soft);font-size:11px;font-weight:500">(+${r.games2})</span>`
-      : `${r.games}`;
-    const delta2Cell = r.games2 > 0 ? `${sign2}${r.diff2}` : `<span style="color:var(--navy-soft)">—</span>`;
-    const avgDelta2Cell = r.games2 > 0 ? fmtAvgDiff(r.avgDiff2, r.games2) : `<span style="color:var(--navy-soft)">—</span>`;
-    html += `<tr class="${i===0?'top1':''}">
-      <td class="rank">${i+1}</td>
-      <td class="name">${esc(r.name)}</td>
-      <td>${lvlBadge}</td>
-      <td class="num">${gamesCell}</td>
-      <td class="num">${r.wins}</td>
-      <td class="num">${r.scored}</td>
-      <td class="num">${r.conceded}</td>
-      <td class="num ${cls}">${sign}${r.diff}</td>
-      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
-      <td class="num ${cls2}">${delta2Cell}</td>
-      <td class="num ${clsA2}">${avgDelta2Cell}</td>
-    </tr>`;
-  });
-  html += `</tbody></table>
-    <p class="hint" style="margin:8px 0 0">Колонка <b>Δ Эт.2</b> — вклад Этапа 2 (ABE + EF) в общий рейтинг; «Игр» в скобках — сколько из них в Этапе 2.</p>
-  </div>`;
-  return html;
-}
-
-/* ===== Рендер: Этап 2 (ABE + EF) ===== */
-function renderCascadeStage2(){
-  const d = getDistributedPlayers();
-  // авто-заполнение списков ABE из распределения (сильные = A, слабые = E→ABE)
-  syncABEAutoLists();
-  const cfgABE = CASCADE_CONFIG.ABE;
-  const cfgEF  = CASCADE_CONFIG.EF;
-
-  let html = `<div class="sub-stage-banner">
-    Этап 2. Пул <b>ABE</b>: ${d.abePool.length} игр., пул <b>EF</b>: ${d.efPool.length} игр.
-    ${d.eUnassigned.length ? ` · <span style="color:var(--bad)">не распределены: ${d.eUnassigned.map(esc).join(", ")}</span>` : ""}
-  </div>`;
-
-  // Сводная таблица рейтинга (оба этапа суммарно + вклад Этапа 2)
-  html += renderCascadeStage2StandingsCard();
-
-  // === ABE ===
-  const subABE = DB.cascade.ABE;
-  const strong = parseList(subABE.inputStrong);
-  const weak = parseList(subABE.inputWeak);
-  const abeCourts = subABE.courts || cfgABE.courts;
-  const abePoolSet = new Set(d.abePool);
-  const used = new Set([...strong, ...weak]);
-  const missing = d.abePool.filter(p => !used.has(p));
-  // ошибки: дубли между списками, игроки не из пула, повторы в одном списке
-  const errs = [];
-  const sSet = new Set();
-  strong.forEach(p => { if(sSet.has(p)) errs.push(`«${p}» дублируется в «сильных»`); sSet.add(p); });
-  const wSet = new Set();
-  weak.forEach(p => { if(wSet.has(p)) errs.push(`«${p}» дублируется в «слабых»`); wSet.add(p); });
-  strong.forEach(p => { if(wSet.has(p)) errs.push(`«${p}» указан и в сильных, и в слабых`); });
-  [...strong, ...weak].forEach(p => { if(!abePoolSet.has(p)) errs.push(`«${p}» не из пула ABE`); });
-  const overABE = (strong.length + weak.length) > cfgABE.maxPlayers;
-
-  html += `<div class="sub-panel lvl-abe">
-    <div class="sub-head">
-      <div class="sub-title">
-        <span class="sub-badge abe">ABE</span>
-        <h3 class="sub-h">${cfgABE.title}</h3>
-      </div>
-      <span class="sub-meta">${strong.length + weak.length}/${cfgABE.maxPlayers} в списках · ${strong.length}+${weak.length}</span>
-    </div>
-    <p class="sub-desc">${cfgABE.desc}</p>
-    <div class="sub-courts">кортов:
-      <div class="seg" data-cascade-courts="ABE">
-        ${[1,2,3,4].map(c => `<button data-c="${c}" class="${c===abeCourts?'on':''}">${c}</button>`).join("")}
-      </div>
-    </div>
-    <div class="abe-pool">
-      Пул ABE (${d.abePool.length} чел.): <span class="names">${d.abePool.length ? d.abePool.map(esc).join(", ") : "<i>пусто — добавь игроков и проверь распределение</i>"}</span>
-      ${missing.length ? `<span class="miss">Ещё не в списках: ${missing.map(esc).join(", ")}</span>` : ""}
-      ${errs.length ? `<span class="err">⚠ ${errs.map(esc).join("; ")}</span>` : ""}
-    </div>
-    <div class="abe-twocol">
-      <div class="abe-col">
-        <label>Сильные ${subABE.inputStrong !== subABE.autoStrong ? '<span class="abe-edited">правлено</span>' : ''}</label>
-        <textarea id="cascadeABEStrong" placeholder="По одному имени в строке">${esc(subABE.inputStrong)}</textarea>
-      </div>
-      <div class="abe-col">
-        <label>Слабые ${subABE.inputWeak !== subABE.autoWeak ? '<span class="abe-edited">правлено</span>' : ''}</label>
-        <textarea id="cascadeABEWeak" placeholder="По одному имени в строке">${esc(subABE.inputWeak)}</textarea>
-      </div>
-    </div>
-    <div class="abe-auto-hint">
-      Списки заполнены автоматически из распределения: <b>сильные</b> — из уровня A, <b>слабые</b> — из E (которых отправили в ABE). Можно править вручную.
-      ${(subABE.inputStrong !== subABE.autoStrong || subABE.inputWeak !== subABE.autoWeak) ? '<button class="btn ghost btn-sm" data-cascade-abe-auto>Сбросить к авто</button>' : ''}
-    </div>`;
-  if(overABE){
-    html += `<p class="sub-desc" style="color:var(--bad);margin:6px 0 0">Игроков больше лимита (${cfgABE.maxPlayers}).</p>`;
-  }
-  html += `<div class="sub-controls">
-    <button class="btn primary" data-cascade-add="ABE">＋ Тур</button>
-    <button class="btn ghost" data-cascade-max="ABE">До максимума</button>
-    <button class="btn danger" data-cascade-reset="ABE">Сброс туров</button>
-  </div>`;
-  if(subABE.rounds.length){
-    html += `<div class="sub-rounds">`;
-    subABE.rounds.forEach((rd, ri) => {
-      html += renderSubRound(rd, ri, "ABE", { bestOf2: false });
-    });
-    html += `</div>`;
-  } else {
-    html += `<div class="sub-empty">Туров пока нет. Заполни списки и нажми «Тур».</div>`;
-  }
-  html += `</div>`;
-
-  // === EF ===
-  const subEF = DB.cascade.EF;
-  const efCourts = subEF.courts || cfgEF.courts;
-  const overEF = d.efPool.length > cfgEF.maxPlayers;
-
-  html += `<div class="sub-panel lvl-ef">
-    <div class="sub-head">
-      <div class="sub-title">
-        <span class="sub-badge ef">EF</span>
-        <h3 class="sub-h">${cfgEF.title}</h3>
-      </div>
-      <span class="sub-meta">${d.efPool.length}/${cfgEF.maxPlayers} игроков</span>
-    </div>
-    <p class="sub-desc">${cfgEF.desc}</p>
-    <div class="sub-courts">кортов:
-      <div class="seg" data-cascade-courts="EF">
-        ${[1,2,3,4].map(c => `<button data-c="${c}" class="${c===efCourts?'on':''}">${c}</button>`).join("")}
-      </div>
-    </div>
-    <div class="ef-pool">
-      Пул EF (${d.efPool.length} чел.): <span class="names">${d.efPool.length ? d.efPool.map(esc).join(", ") : "<i>пусто — проверь распределение</i>"}</span>
-    </div>`;
-  if(overEF){
-    html += `<p class="sub-desc" style="color:var(--bad);margin:6px 0 0">Игроков больше лимита (${cfgEF.maxPlayers}).</p>`;
-  }
-  html += `<div class="sub-controls">
-    <button class="btn primary" data-cascade-add="EF">＋ Тур</button>
-    <button class="btn ghost" data-cascade-max="EF">До максимума</button>
-    <button class="btn danger" data-cascade-reset="EF">Сброс туров</button>
-  </div>`;
-  if(subEF.rounds.length){
-    html += `<div class="sub-rounds">`;
-    subEF.rounds.forEach((rd, ri) => {
-      html += renderSubRound(rd, ri, "EF", { bestOf2: false });
-    });
-    html += `</div>`;
-  } else {
-    html += `<div class="sub-empty">Туров пока нет. Сначала распредели игроков (вкладка «Распределение»), затем нажми «Тур».</div>`;
-  }
-  html += `</div>`;
-
-  $("#cascadeView").innerHTML = html;
-  attachCascadeStage2Handlers();
-}
-
-/* ===== Подсчёт итоговой статистики (только указанные игроки) ===== */
-function computeCascadeStandingsForPlayers(playerSet){
-  const stat = {};
-  const touch = (n) => {
-    if(!stat[n]) stat[n] = { name: n, games: 0, wins: 0, scored: 0, conceded: 0, diff: 0 };
-    return stat[n];
-  };
-  const processRounds = (rounds, isBestOf2) => {
-    rounds.forEach(rd => {
-      rd.games.forEach(g => {
-        const t1 = [g.t1[0], g.t1[1]], t2 = [g.t2[0], g.t2[1]];
-        let aSum = 0, bSum = 0, anyScore = false;
-        if(isBestOf2 && g.sets){
-          g.sets.forEach(s => {
-            const a = parseInt(s.sa, 10), b = parseInt(s.sb, 10);
-            if(!isNaN(a) && !isNaN(b)){ aSum += a; bSum += b; anyScore = true; }
-          });
-        } else {
-          const a = parseInt(g.sa, 10), b = parseInt(g.sb, 10);
-          if(!isNaN(a) && !isNaN(b)){ aSum = a; bSum = b; anyScore = true; }
-        }
-        if(!anyScore) return;
-        const d = aSum - bSum;
-        t1.forEach(p => { if(!playerSet.has(p)) return; const s = touch(p); s.games++; s.scored += aSum; s.conceded += bSum; s.diff += d; if(d > 0) s.wins++; });
-        t2.forEach(p => { if(!playerSet.has(p)) return; const s = touch(p); s.games++; s.scored += bSum; s.conceded += aSum; s.diff -= d; if(d < 0) s.wins++; });
-      });
-    });
-  };
-  processRounds(DB.cascade.A.rounds, true);
-  processRounds(DB.cascade.E.rounds, false);
-  processRounds(DB.cascade.F.rounds, false);
-  processRounds(DB.cascade.ABE.rounds, false);
-  processRounds(DB.cascade.EF.rounds, false);
-  return finalizeStandings(Object.values(stat));
-}
-
-/* ===== Рендер: Итоги — две таблицы ===== */
-function renderCascadeTotals(){
-  let html = "";
-
-  // Игроки финальных таблиц = те, кто реально попал в списки (ABE) / в EF-пул
-  const abeStrong = parseList(DB.cascade.ABE.inputStrong);
-  const abeWeak   = parseList(DB.cascade.ABE.inputWeak);
-  const abePlayers = new Set([...abeStrong, ...abeWeak]);
-
-  const d = getDistributedPlayers();
-  const efPlayers = new Set(d.efPool);
-
-  // ABE table
-  const abeRows = computeCascadeStandingsForPlayers(abePlayers);
-  html += `<div class="card" style="margin-bottom:14px">
-    <h2 style="font-family:'Fraunces',serif;font-size:20px;margin:0 0 12px;font-weight:800">
-      <span class="lvl-badge-inline abe">ABE</span> Итоговая таблица — накопительный рейтинг
-    </h2>
-    <p class="hint" style="margin:0 0 12px">Сумма разницы воланов за оба этапа для игроков, попавших в списки ABE.</p>`;
-  if(!abeRows.length || abeRows.every(r => r.games === 0)){
-    html += `<p class="hint" style="margin:0;text-align:center">Нет сыгранных матчей со счётом для игроков из ABE.</p>`;
-  } else {
-    html += sortSelectorHtml('totals-abe');
-    html += renderFinalTable(abeRows);
-  }
-  html += `</div>`;
-
-  // EF table
-  const efRows = computeCascadeStandingsForPlayers(efPlayers);
-  html += `<div class="card">
-    <h2 style="font-family:'Fraunces',serif;font-size:20px;margin:0 0 12px;font-weight:800">
-      <span class="lvl-badge-inline ef">EF</span> Итоговая таблица — накопительный рейтинг
-    </h2>
-    <p class="hint" style="margin:0 0 12px">Сумма разницы воланов за оба этапа для игроков, реально игравших в EF.</p>`;
-  if(!efRows.length || efRows.every(r => r.games === 0)){
-    html += `<p class="hint" style="margin:0;text-align:center">Нет сыгранных матчей со счётом для игроков из EF.</p>`;
-  } else {
-    html += sortSelectorHtml('totals-ef');
-    html += renderFinalTable(efRows);
-  }
-  html += `</div>`;
-
-  $("#cascadeView").innerHTML = html;
-}
-
-function renderFinalTable(rows){
-  let html = `<table class="tbl"><thead><tr>
-    <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-    <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
-  </tr></thead><tbody>`;
-  rows.forEach((r, i) => {
-    const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
-    const sign = r.diff > 0 ? "+" : "";
-    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
-    html += `<tr class="${i===0?'top1':''}">
-      <td class="rank">${i+1}</td>
-      <td class="name">${esc(r.name)}</td>
-      <td class="num">${r.games}</td>
-      <td class="num">${r.wins}</td>
-      <td class="num">${r.scored}</td>
-      <td class="num">${r.conceded}</td>
-      <td class="num ${cls}">${sign}${r.diff}</td>
-      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
-    </tr>`;
-  });
-  html += `</tbody></table>`;
-  return html;
-}
-
-/* ===== Главный рендер каскада ===== */
-function renderCascade(){
-  // Подсветка активного шага
-  document.querySelectorAll("#cascadeSubnav button").forEach(b => {
-    b.classList.toggle("on", b.dataset.view === DB.cascade.view);
-  });
-  const v = DB.cascade.view;
-  if(v === "stage1") renderCascadeStage1();
-  else if(v === "distribution") renderCascadeDistribution();
-  else if(v === "stage2") renderCascadeStage2();
-  else renderCascadeTotals();
-  attachSortHandlers();
-}
-
-/* ===== Общий диспетчер добавления тура ===== */
-function cascadeAddRoundDispatch(key, toMax){
-  // sync inputs из текстарей перед вычислением тура
-  syncCascadeInputs();
-  if(key === "A") cascadeAddRoundA(toMax);
-  else if(key === "E") cascadeAddRoundE(toMax);
-  else if(key === "F") cascadeAddRoundF(toMax);
-  else if(key === "ABE") cascadeAddRoundABE(toMax);
-  else if(key === "EF") cascadeAddRoundEF(toMax);
-}
-
-/* Чтение всех касательных к подтурнирам текстарей в DB перед расчётом */
-function syncCascadeInputs(){
-  ["A","E","F"].forEach(key => {
-    const ta = document.getElementById("cascadeInput" + key);
-    if(ta) DB.cascade[key].input = ta.value;
-  });
-  const sTA = document.getElementById("cascadeABEStrong");
-  if(sTA) DB.cascade.ABE.inputStrong = sTA.value;
-  const wTA = document.getElementById("cascadeABEWeak");
-  if(wTA) DB.cascade.ABE.inputWeak = wTA.value;
-}
-
-/* ===== Обработчики Этапа 1 ===== */
-function attachCascadeStage1Handlers(){
-  ["A","E","F"].forEach(key => {
-    const ta = document.getElementById("cascadeInput" + key);
-    if(ta){
-      ta.addEventListener("input", () => { DB.cascade[key].input = ta.value; });
-      ta.addEventListener("change", () => {
-        DB.cascade[key].input = ta.value;
-        saveDB();
-        renderCascade();
-      });
-    }
-  });
-  attachCascadeCommonHandlers();
-}
-
-/* ===== Обработчики Этапа 2 ===== */
-function attachCascadeStage2Handlers(){
-  // textareas для ABE (strong / weak)
-  const sTA = document.getElementById("cascadeABEStrong");
-  const wTA = document.getElementById("cascadeABEWeak");
-  if(sTA){
-    sTA.addEventListener("input", () => { DB.cascade.ABE.inputStrong = sTA.value; });
-    sTA.addEventListener("change", () => { DB.cascade.ABE.inputStrong = sTA.value; saveDB(); renderCascade(); });
-  }
-  if(wTA){
-    wTA.addEventListener("input", () => { DB.cascade.ABE.inputWeak = wTA.value; });
-    wTA.addEventListener("change", () => { DB.cascade.ABE.inputWeak = wTA.value; saveDB(); renderCascade(); });
-  }
-  // «Сбросить к авто» — форсированно перезаписать списки из распределения
-  document.querySelectorAll("[data-cascade-abe-auto]").forEach(btn => {
-    btn.onclick = () => {
-      syncABEAutoLists(true);
-      saveDB();
-      renderCascade();
-    };
-  });
-  attachCascadeCommonHandlers();
-}
-
-/* ===== Обработчики Распределения ===== */
-function attachCascadeDistributionHandlers(){
-  document.querySelectorAll("[data-edist]").forEach(btn => {
-    btn.onclick = () => {
-      const name = btn.dataset.edist;
-      const to = btn.dataset.to;
-      // тоггл: повторный клик по уже выбранной кнопке снимает назначение
-      if(DB.cascade.eAssign[name] === to){
-        delete DB.cascade.eAssign[name];
-      } else {
-        DB.cascade.eAssign[name] = to;
-      }
-      saveDB();
-      renderCascade();
-    };
-  });
-}
-
-/* Общие обработчики для кнопок add/max/reset, селектора кортов и инпутов счёта */
-function attachCascadeCommonHandlers(){
-  document.querySelectorAll("[data-cascade-add]").forEach(btn => {
-    btn.onclick = () => cascadeAddRoundDispatch(btn.dataset.cascadeAdd, false);
-  });
-  document.querySelectorAll("[data-cascade-max]").forEach(btn => {
-    btn.onclick = () => cascadeAddRoundDispatch(btn.dataset.cascadeMax, true);
-  });
-  document.querySelectorAll("[data-cascade-reset]").forEach(btn => {
-    btn.onclick = () => {
-      const k = btn.dataset.cascadeReset;
-      const label = CASCADE_CONFIG[k].label;
-      if(!confirm(`Сбросить туры уровня ${label}? Списки игроков останутся.`)) return;
-      const sub = DB.cascade[k];
-      sub.rounds = [];
-      sub.usedPairs = [];
-      if(sub.usedMatchups !== undefined) sub.usedMatchups = [];
-      sub.playCount = {};
-      saveDB(); renderCascade();
-    };
-  });
-  // Селектор кортов на каждой подпанели
-  document.querySelectorAll("[data-cascade-courts]").forEach(segEl => {
-    const key = segEl.dataset.cascadeCourts;
-    segEl.querySelectorAll("button").forEach(b => {
-      b.onclick = () => {
-        DB.cascade[key].courts = +b.dataset.c;
-        saveDB(); renderCascade();
-      };
-    });
-  });
-  // Обработка ввода счёта
-  document.querySelectorAll('.sub-game .scs input').forEach(inp => {
-    inp.addEventListener("input", () => {
-      inp.value = inp.value.replace(/[^0-9]/g, "");
-      const sub = inp.dataset.sub;
-      const r = +inp.dataset.r, g = +inp.dataset.g;
-      const side = inp.dataset.side;
-      const setIdx = inp.dataset.set !== undefined ? +inp.dataset.set : null;
-      const game = DB.cascade[sub].rounds[r].games[g];
-      if(setIdx !== null){
-        if(!game.sets) game.sets = [{sa:"",sb:""},{sa:"",sb:""}];
-        game.sets[setIdx][side === "a" ? "sa" : "sb"] = inp.value;
-      } else {
-        game[side === "a" ? "sa" : "sb"] = inp.value;
-      }
-    });
-    inp.addEventListener("change", () => { saveDB(); renderCascade(); });
-  });
-}
-
-/* ===== Переключение подвкладок ===== */
-function attachCascadeNav(){
-  const nav = $("#cascadeSubnav");
-  if(!nav) return;
-  nav.querySelectorAll("button").forEach(b => {
-    b.onclick = () => {
-      DB.cascade.view = b.dataset.view;
-      saveDB();
-      renderCascade();
-    };
+  // Delete round buttons
+  out.querySelectorAll("[data-del-round]").forEach(btn => {
+    btn.onclick = () => deleteRound(+btn.dataset.delRound);
   });
 }
 
 /* =====================================================================
    3 ГРУППЫ (DEF) — новый режим турнира
    ---------------------------------------------------------------------
-   Этап 1: три независимые группы D, E, F (макс 8 чел в каждой).
+   Этап 1: три независимые группы D, E, F (число игроков не ограничено).
    В группе — американо со случайными партнёрами. Дополнительно:
      • «стартовые» пары (seedPairs) играют вместе первые несколько игр —
        после того как все seed-пары отыграли, начинается классическое американо.
@@ -3042,6 +2066,80 @@ function defShowErr(msg){
   e.textContent = msg;
   e.style.display = "block";
   e.classList.add("show");
+}
+
+
+/* ===== DEF helpers: удаление тура + пересчёт ===== */
+function recomputeDEFGroupState(key){
+  const sub = DB.groupsDEF[key];
+  const upSet = new Set();
+  const umSet = new Set();
+  sub.playCount = {};
+  const { hard } = defSanitizeGroupPairs(sub);
+  const hardKey = hard ? pkey(hard[0], hard[1]) : null;
+  sub.seedPlayed = [];
+  const seedKeys = new Set((sub.seedPairs||[]).map(p => pkey(p[0],p[1])));
+  sub.rounds.forEach(rd => {
+    (rd.active||[]).forEach(p => sub.playCount[p] = (sub.playCount[p]||0) + 1);
+    (rd.games||[]).forEach(g => {
+      const k1 = pkey(g.t1[0], g.t1[1]);
+      const k2 = pkey(g.t2[0], g.t2[1]);
+      if(k1 !== hardKey) upSet.add(k1);
+      if(k2 !== hardKey) upSet.add(k2);
+      if(seedKeys.has(k1)) sub.seedPlayed.push(k1);
+      if(seedKeys.has(k2)) sub.seedPlayed.push(k2);
+      umSet.add(mkey(g.t1, g.t2));
+    });
+  });
+  sub.seedPlayed = [...new Set(sub.seedPlayed)];
+  sub.usedPairs = [...upSet];
+  sub.usedMatchups = [...umSet];
+  const maxCyc = sub.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
+  sub.cycle = maxCyc;
+}
+function deleteDEFGroupRound(key, index){
+  const sub = DB.groupsDEF[key];
+  if(!Array.isArray(sub.rounds) || index<0 || index>=sub.rounds.length) return;
+  if(!confirm(`Удалить тур ${index+1} в группе ${key}?`)) return;
+  sub.rounds.splice(index, 1);
+  recomputeDEFGroupState(key);
+  saveDB();
+  renderDEF();
+}
+function recomputeDEFStage2State(){
+  const s2 = DB.groupsDEF.stage2;
+  const upSet = new Set();
+  const umSet = new Set();
+  s2.playCount = {};
+  s2.rounds.forEach(rd => {
+    (rd.active||[]).forEach(p => s2.playCount[p] = (s2.playCount[p]||0) + 1);
+    (rd.games||[]).forEach(g => {
+      if(!g.t1Fixed) upSet.add(dkey(g.t1[0], g.t1[1]));
+      if(!g.t2Fixed) upSet.add(dkey(g.t2[0], g.t2[1]));
+      umSet.add(mkey(g.t1, g.t2));
+    });
+  });
+  s2.usedPairs = [...upSet];
+  s2.usedMatchups = [...umSet];
+  const maxCyc = s2.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
+  s2.cycle = maxCyc;
+}
+function deleteDEFStage2Round(index){
+  const s2 = DB.groupsDEF.stage2;
+  if(!Array.isArray(s2.rounds) || index<0 || index>=s2.rounds.length) return;
+  if(!confirm(`Удалить тур ${index+1} Этапа 2?`)) return;
+  s2.rounds.splice(index, 1);
+  recomputeDEFStage2State();
+  saveDB();
+  renderDEF();
+}
+
+function defRestPickerHtml(playersList, forcedList, dataKey){
+  if(!playersList.length) return '<span class="rest-empty">Сначала добавьте игроков.</span>';
+  const forced = new Set(forcedList||[]);
+  return playersList.map(p =>
+    `<button class="rest-chip${forced.has(p)?' on':''}" type="button" data-def-rest="${dataKey}" data-name="${esc(p)}">${esc(p)}</button>`
+  ).join("");
 }
 
 /* ---------------------------------------------------------------------
@@ -3092,14 +2190,24 @@ function defValidSeedPlayedKeys(sub, validSeedPairs){
    Возвращает объект { rd, playedSeedKeys, hardKey } или null.
    --------------------------------------------------------------------- */
 function buildDEFStage1Round(sub, courts){
-  const players = parseList(sub.input);
-  if(players.length < 4) return null;
+  const allPlayers = parseList(sub.input);
+  if(allPlayers.length < 4) return null;
   const { hard, seed } = defSanitizeGroupPairs(sub);
   const hardKey = hard ? pkey(hard[0], hard[1]) : null;
   const seedPlayedSet = defValidSeedPlayedKeys(sub, seed);
   const unplayedSeeds = seed.filter(p => !seedPlayedSet.has(pkey(p[0], p[1])));
 
+  // forcedRest: убираем из ротации, если игрок не в hardPair/seedPair
+  const lockedPlayers = new Set([...(hard||[]), ...seed.flat()]);
+  const forced = new Set((sub.forcedRest||[]).filter(p => !lockedPlayers.has(p)));
+  const players = allPlayers.filter(p => !forced.has(p));
+  const restForcedList = allPlayers.filter(p => forced.has(p));
+
   const usedSet = new Set(sub.usedPairs || []);
+  // История «когда-то фикс.» пар — не собираем случайно
+  (sub.hardPairHistory||[]).forEach(k => { if(k !== hardKey) usedSet.add(k); });
+  const curSeedKeys = new Set(seed.map(p => pkey(p[0], p[1])));
+  (sub.seedPairsHistory||[]).forEach(k => { if(!curSeedKeys.has(k)) usedSet.add(k); });
 
   const lockedBase = hard ? [[hard[0], hard[1]]] : [];
   const maxLockedSlots = courts * 2;
@@ -3117,6 +2225,9 @@ function buildDEFStage1Round(sub, courts){
       const rd = buildSingleRound(players, lockedPairs, usedSet, sub.playCount, courts);
       if(rd){
         const playedSeedKeys = seedToLock.map(p => pkey(p[0], p[1]));
+        if(restForcedList.length){
+          rd.resting = [...(rd.resting||[]), ...restForcedList.filter(p=>!(rd.resting||[]).includes(p))];
+        }
         return { rd, playedSeedKeys, hardKey };
       }
     }
@@ -3138,10 +2249,6 @@ function defAddRoundStage1(key, toMax){
   const players = parseList(sub.input);
   if(players.length < 4){
     defShowErr(`${meta.title}: нужно минимум 4 игрока.`);
-    return;
-  }
-  if(players.length > DEF_MAX_PER_GROUP){
-    defShowErr(`${meta.title}: максимум ${DEF_MAX_PER_GROUP} игроков в группе.`);
     return;
   }
   // Проверим валидность seed/hard пар
@@ -3204,10 +2311,14 @@ function defAddRoundStage1(key, toMax){
     // Каждая игра — 1 сет (используем поле sets для совместимости с рендером)
     rd.games.forEach(g => {
       if(!Array.isArray(g.sets)) g.sets = [{ sa: "", sb: "" }];
+      if(!Array.isArray(sub.usedMatchups)) sub.usedMatchups = [];
+      const mk = mkey(g.t1, g.t2);
+      if(!sub.usedMatchups.includes(mk)) sub.usedMatchups.push(mk);
     });
 
     sub.rounds.push(rd);
     added++;
+    sub.forcedRest = [];
   }
 
   saveDB();
@@ -3347,10 +2458,6 @@ function defAddRoundStage2(toMax){
     defShowErr("Этап 2: в каждом списке должно быть минимум 2 игрока.");
     return;
   }
-  if(L1.length + L2.length > DEF_STAGE2_MAX){
-    defShowErr(`Этап 2: максимум ${DEF_STAGE2_MAX} игроков суммарно.`);
-    return;
-  }
   // Дубли между списками
   const s1Set = new Set(L1);
   for(const p of L2){
@@ -3363,33 +2470,52 @@ function defAddRoundStage2(toMax){
     return;
   }
 
+  // forcedRest
+  const lockedPlayers = new Set(lockedPairs.flat());
+  const forced = new Set((s2.forcedRest||[]).filter(p => !lockedPlayers.has(p)));
+  const activeL1 = L1.filter(p => !forced.has(p));
+  const activeL2 = L2.filter(p => !forced.has(p));
+  const restForced = [...L1, ...L2].filter(p => forced.has(p));
+
   let usedSet = new Set(s2.usedPairs || []);
+  // История когда-то фикс. пар
+  const curFixedKeys = new Set(lockedPairs.map(p => dkey(p[0], p[1])));
+  (s2.fixedPairsHistory||[]).forEach(k => { if(!curFixedKeys.has(k)) usedSet.add(k); });
   const limit = toMax ? 999 : 1;
   let added = 0, stopped = false, cycled = false;
 
+  let usedMatchSet = new Set(s2.usedMatchups || []);
   for(let i = 0; i < limit; i++){
-    let rd = buildDoubleRound(L1, L2, lockedPairs, usedSet, s2.playCount, courts);
+    const buildL1 = activeL1.length>=2 ? activeL1 : L1;
+    const buildL2 = activeL2.length>=2 ? activeL2 : L2;
+    let rd = buildDoubleRound(buildL1, buildL2, lockedPairs, usedSet, s2.playCount, courts);
     if(!rd){
       if(toMax){ stopped = true; break; }
       // Автоповтор круга
       usedSet = new Set();
+      (s2.fixedPairsHistory||[]).forEach(k => { if(!curFixedKeys.has(k)) usedSet.add(k); });
       s2.cycle = (s2.cycle || 1) + 1;
       cycled = true;
-      rd = buildDoubleRound(L1, L2, lockedPairs, usedSet, s2.playCount, courts);
+      rd = buildDoubleRound(buildL1, buildL2, lockedPairs, usedSet, s2.playCount, courts);
       if(!rd){ stopped = true; break; }
+    }
+    if(restForced.length){
+      rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))];
     }
     rd.cycle = s2.cycle || 1;
     rd.games.forEach(g => {
       if(!g.t1Fixed) usedSet.add(dkey(g.t1[0], g.t1[1]));
       if(!g.t2Fixed) usedSet.add(dkey(g.t2[0], g.t2[1]));
-      // Совместимость рендера
+      usedMatchSet.add(mkey(g.t1, g.t2));
       if(!Array.isArray(g.sets)) g.sets = [{ sa: "", sb: "" }];
     });
     rd.active.forEach(p => s2.playCount[p] = (s2.playCount[p] || 0) + 1);
     s2.rounds.push(rd);
     added++;
+    s2.forcedRest = [];
   }
   s2.usedPairs = [...usedSet];
+  s2.usedMatchups = [...usedMatchSet];
 
   saveDB();
   renderDEF();
@@ -3440,7 +2566,7 @@ function defSyncInputs(){
   if(l2) DB.groupsDEF.stage2.inputList2 = l2.value;
 }
 
-/* Рендер одного тура (компактный вид, аналогично cascade) */
+/* Рендер одного тура (компактный вид) */
 function renderDEFRound(rd, ri, subKey){
   const restText = (rd.resting && rd.resting.length)
     ? `Отдыхают: ${rd.resting.map(esc).join(", ")}`
@@ -3452,7 +2578,10 @@ function renderDEFRound(rd, ri, subKey){
   let html = `<div class="sub-round" data-r="${ri}">
     <div class="sub-round-head">
       <span class="rname">Тур <span>${ri+1}</span>${phaseTag}${cycleTag}</span>
-      <span class="rest ${rd.resting && rd.resting.length ? '' : 'none'}">${restText}</span>
+      <div class="sub-round-tools">
+        <span class="rest ${rd.resting && rd.resting.length ? '' : 'none'}">${restText}</span>
+        <button class="sub-round-del" data-def-del="${subKey}" data-r="${ri}" type="button" title="Удалить этот тур">× удалить</button>
+      </div>
     </div>`;
   rd.games.forEach((g, gi) => {
     const kind1 = g.t1FixedKind || (g.t1Fixed ? "hard" : null);
@@ -3493,7 +2622,7 @@ function renderDEFGroupStandingsTable(key){
     ${sortSelectorHtml('def-group-'+key)}
     <table class="tbl" style="font-size:13px"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ воланов</th><th class="num">Средняя Δ воланов</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3589,7 +2718,7 @@ function renderDEFGroupPanel(key){
   const sub = DB.groupsDEF[key];
   const meta = DEF_GROUP_META[key];
   const players = parseList(sub.input);
-  const overLimit = players.length > DEF_MAX_PER_GROUP;
+  const overLimit = false; // no cap anymore
   const curCourts = sub.courts || 1;
 
   let html = `<div class="sub-panel">
@@ -3598,7 +2727,7 @@ function renderDEFGroupPanel(key){
         <span class="sub-badge ${meta.cls}">${meta.label}</span>
         <h3 class="sub-h">${meta.title}</h3>
       </div>
-      <span class="sub-meta">${players.length}/${DEF_MAX_PER_GROUP} игроков</span>
+      <span class="sub-meta">${players.length} игрок(а/ов)</span>
     </div>
     <p class="sub-desc">Американо в группе: случайные партнёры и соперники (с возможностью стартовых и постоянной пар).</p>
     <div class="sub-courts">кортов:
@@ -3607,11 +2736,15 @@ function renderDEFGroupPanel(key){
       </div>
     </div>
     <div class="sub-input">
-      <textarea id="defInput${key}" placeholder="По одному имени в строке (макс ${DEF_MAX_PER_GROUP})">${esc(sub.input)}</textarea>
+      <textarea id="defInput${key}" placeholder="По одному имени в строке">${esc(sub.input)}</textarea>
+    </div>
+    <div class="rest-picker" style="margin-top:8px">
+      <div class="rest-picker-head">
+        <small>Отдых в следующем туре</small>
+        <span class="rest-hint">Клик по имени. Список сбрасывается автоматически.</span>
+      </div>
+      <div class="rest-picker-list" data-def-rest-list="${key}">${defRestPickerHtml(players, sub.forcedRest||[], key)}</div>
     </div>`;
-  if(overLimit){
-    html += `<p class="sub-desc" style="color:var(--bad)">Игроков больше лимита (${DEF_MAX_PER_GROUP}).</p>`;
-  }
 
   html += renderDEFGroupFixedPairsBlock(key);
 
@@ -3692,7 +2825,7 @@ function renderDEFStage2StandingsTable(){
     ${sortSelectorHtml('def-stage2')}
     <table class="tbl" style="font-size:13px"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ воланов</th><th class="num">Средняя Δ воланов</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3720,7 +2853,7 @@ function renderDEFStage2(){
   const L1 = parseList(s2.inputList1);
   const L2 = parseList(s2.inputList2);
   const total = L1.length + L2.length;
-  const overLimit = total > DEF_STAGE2_MAX;
+  const overLimit = false;
 
   // Информация об «остатке» после распределения (кто игрался в Этапе 1, но не в списках)
   const played = defStage1PlayedPlayers();
@@ -3746,7 +2879,7 @@ function renderDEFStage2(){
         <span class="sub-badge s2">2</span>
         <h3 class="sub-h">Кросс-американо (два списка)</h3>
       </div>
-      <span class="sub-meta">${total}/${DEF_STAGE2_MAX} игроков</span>
+      <span class="sub-meta">${total} игрок(а/ов)</span>
     </div>
     <p class="sub-desc">Пара формируется как один игрок из списка 1 + один из списка 2. Соперники — так же (crossed). Списки автоматически формируются по рейтингам групп Этапа 1 (верх/низ), но их можно править вручную.</p>
 
@@ -3769,6 +2902,13 @@ function renderDEFStage2(){
     <div class="abe-auto-hint">
       Списки заполнены автоматически: <b>список 1</b> — верхняя половина рейтингов групп, <b>список 2</b> — нижняя. Можно править вручную. Игроки могут быть любыми из числа отыгравших Этап 1.
       ${edited ? '<button class="btn ghost btn-sm" data-def-s2-auto>Сбросить к авто</button>' : ''}
+    </div>
+    <div class="rest-picker" style="margin-top:8px">
+      <div class="rest-picker-head">
+        <small>Отдых в следующем туре</small>
+        <span class="rest-hint">Клик по имени. Список сбрасывается автоматически.</span>
+      </div>
+      <div class="rest-picker-list" data-def-rest-list="S2">${defRestPickerHtml([...new Set([...L1, ...L2])], s2.forcedRest||[], "S2")}</div>
     </div>`;
   if(overLimit){
     html += `<p class="sub-desc" style="color:var(--bad);margin:6px 0 0">Игроков больше лимита (${DEF_STAGE2_MAX}).</p>`;
@@ -3816,7 +2956,7 @@ function renderDEFTotals(){
     } else {
       html += `<table class="tbl" style="margin-bottom:8px"><thead><tr>
         <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-        <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
+        <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ воланов</th><th class="num">Средняя Δ воланов</th>
       </tr></thead><tbody>`;
       rows.forEach((r, i) => {
         const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3852,7 +2992,7 @@ function renderDEFTotals(){
     html += sortSelectorHtml('def-totals-stage2');
     html += `<table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
-      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ воланов</th><th class="num">Средняя Δ воланов</th>
     </tr></thead><tbody>`;
     s2rows.forEach((r, i) => {
       const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
@@ -3924,6 +3064,9 @@ function attachDEFStage1Handlers(){
       if(!a || !b){ defShowErr("Выбери двух игроков для постоянной пары."); return; }
       if(a === b){ defShowErr("Выбери разных игроков."); return; }
       DB.groupsDEF[key].hardPair = [a, b];
+      const hk = pkey(a,b);
+      if(!Array.isArray(DB.groupsDEF[key].hardPairHistory)) DB.groupsDEF[key].hardPairHistory = [];
+      if(!DB.groupsDEF[key].hardPairHistory.includes(hk)) DB.groupsDEF[key].hardPairHistory.push(hk);
       saveDB(); renderDEF();
     };
   });
@@ -3944,6 +3087,9 @@ function attachDEFStage1Handlers(){
       if(a === b){ defShowErr("Выбери разных игроков."); return; }
       if(!Array.isArray(DB.groupsDEF[key].seedPairs)) DB.groupsDEF[key].seedPairs = [];
       DB.groupsDEF[key].seedPairs.push([a, b]);
+      const sk = pkey(a,b);
+      if(!Array.isArray(DB.groupsDEF[key].seedPairsHistory)) DB.groupsDEF[key].seedPairsHistory = [];
+      if(!DB.groupsDEF[key].seedPairsHistory.includes(sk)) DB.groupsDEF[key].seedPairsHistory.push(sk);
       saveDB(); renderDEF();
     };
   });
@@ -3980,6 +3126,33 @@ function attachDEFStage1Handlers(){
       sub.cycle = 1;
       saveDB(); renderDEF();
     };
+  });
+
+  // Delete round buttons (D/E/F) + rest picker
+  document.querySelectorAll("[data-def-del]").forEach(btn => {
+    btn.onclick = () => {
+      const k = btn.dataset.defDel;
+      if(k === "S2") return;
+      deleteDEFGroupRound(k, +btn.dataset.r);
+    };
+  });
+  document.querySelectorAll("[data-def-rest-list]").forEach(list => {
+    list.querySelectorAll("[data-def-rest]").forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.defRest;
+        const name = btn.dataset.name;
+        if(key === "S2"){
+          const s = new Set(DB.groupsDEF.stage2.forcedRest||[]);
+          if(s.has(name)) s.delete(name); else s.add(name);
+          DB.groupsDEF.stage2.forcedRest = [...s];
+        } else {
+          const s = new Set(DB.groupsDEF[key].forcedRest||[]);
+          if(s.has(name)) s.delete(name); else s.add(name);
+          DB.groupsDEF[key].forcedRest = [...s];
+        }
+        saveDB(); renderDEF();
+      };
+    });
   });
 
   // Инпуты счёта
@@ -4027,6 +3200,9 @@ function attachDEFStage2Handlers(){
       const b = document.querySelector('[data-def-s2-select="2"]').value;
       if(!a || !b){ defShowErr("Выбери игроков из обоих списков."); return; }
       DB.groupsDEF.stage2.fixedPairs.push([a, b]);
+      const hk = dkey(a,b);
+      if(!Array.isArray(DB.groupsDEF.stage2.fixedPairsHistory)) DB.groupsDEF.stage2.fixedPairsHistory = [];
+      if(!DB.groupsDEF.stage2.fixedPairsHistory.includes(hk)) DB.groupsDEF.stage2.fixedPairsHistory.push(hk);
       saveDB(); renderDEF();
     };
   }
@@ -4056,6 +3232,30 @@ function attachDEFStage2Handlers(){
       saveDB(); renderDEF();
     };
   }
+
+  document.querySelectorAll("[data-def-del]").forEach(btn => {
+    if(btn.dataset.defDel === "S2"){
+      btn.onclick = () => deleteDEFStage2Round(+btn.dataset.r);
+    }
+  });
+  document.querySelectorAll("[data-def-rest-list]").forEach(list => {
+    list.querySelectorAll("[data-def-rest]").forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.defRest;
+        const name = btn.dataset.name;
+        if(key === "S2"){
+          const s = new Set(DB.groupsDEF.stage2.forcedRest||[]);
+          if(s.has(name)) s.delete(name); else s.add(name);
+          DB.groupsDEF.stage2.forcedRest = [...s];
+        } else {
+          const s = new Set(DB.groupsDEF[key].forcedRest||[]);
+          if(s.has(name)) s.delete(name); else s.add(name);
+          DB.groupsDEF[key].forcedRest = [...s];
+        }
+        saveDB(); renderDEF();
+      };
+    });
+  });
 
   attachDEFScoreInputs();
 }
@@ -4188,10 +3388,9 @@ function applyDBToInputs(){
   $("#listS").value=DB.listS||"";
   // mode tabs
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.mode===DB.mode));
-  // Специальные режимы (cascade, def) прячут обычные блоки
-  const isSpecial = DB.mode==="cascade" || DB.mode==="def";
+  // Специальный режим (def) прячет обычные блоки
+  const isSpecial = DB.mode==="def";
   $("#normalInputCard").style.display = isSpecial ? "none" : "block";
-  $("#cascadeContainer").style.display = DB.mode==="cascade" ? "block" : "none";
   $("#defContainer").style.display = DB.mode==="def" ? "block" : "none";
   $("#standings").style.display = isSpecial ? "none" : "block";
   $("#out").style.display = isSpecial ? "none" : "block";
@@ -4210,9 +3409,7 @@ function applyDBToInputs(){
     document.querySelectorAll("#bestOfSeg button").forEach(b=>b.classList.toggle("on",+b.dataset.b===bo));
     if(typeof updateCounts==="function") updateCounts();
     if(typeof renderFixedPairs==="function" && DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs();
-  } else if(DB.mode === "cascade"){
-    // Каскад — отрисовываем его представление
-    if(typeof renderCascade === "function") renderCascade();
+    if(typeof renderRestPicker==="function") renderRestPicker();
   } else if(DB.mode === "def"){
     // 3 группы (DEF)
     if(typeof renderDEF === "function") renderDEF();
@@ -4224,10 +3421,10 @@ document.querySelectorAll(".tab").forEach(t=>{
   t.addEventListener("click",()=>{
     if(t.dataset.mode===DB.mode) return;
     // Переключение между обычными режимами сбрасывает их туры;
-    // переход в/из cascade или def НЕ трогает основной DB.rounds,
-    // а cascade/def хранят свои данные независимо и не сбрасываются.
-    const fromSpecial = DB.mode === "cascade" || DB.mode === "def";
-    const toSpecial   = t.dataset.mode === "cascade" || t.dataset.mode === "def";
+    // переход в/из def НЕ трогает основной DB.rounds,
+    // а def хранит свои данные независимо и не сбрасывается.
+    const fromSpecial = DB.mode === "def";
+    const toSpecial   = t.dataset.mode === "def";
     const isSpecialSwitch = fromSpecial || toSpecial;
     if(!isSpecialSwitch && DB.rounds.length){
       if(!confirm("Смена режима сбросит текущий турнир (туры, счёт, фикс. пары). Продолжить?")) return;
@@ -4269,7 +3466,7 @@ function updateCounts(){
   const a=parseList($("#listA").value).length;
   const cA=$("#countA");
   cA.textContent = plural(a,"игрок","игрока","игроков");
-  cA.classList.toggle("warn", a>16);
+  cA.classList.toggle("warn", false);
 
   const m=parseList($("#listM").value).length;
   const w=parseList($("#listW").value).length;
@@ -4279,21 +3476,19 @@ function updateCounts(){
   const total=m+w;
   const cMix=$("#countMix");
   cMix.innerHTML=`Всего <b>${total}</b> · пар можно собрать: <b>${pairs}</b>`;
-  $("#countM").classList.toggle("warn", total>16);
-  $("#countW").classList.toggle("warn", total>16);
+  $("#countM").classList.toggle("warn", false);
+  $("#countW").classList.toggle("warn", false);
 
   // pairs mode
   const parsed = parsePairList($("#listP").value);
   const cP = $("#countP");
   cP.textContent = plural(parsed.pairs.length, "пара", "пары", "пар");
-  cP.classList.toggle("warn", parsed.allPlayers.length > 16 || parsed.errors.length > 0);
+  cP.classList.toggle("warn", parsed.errors.length > 0);
   const sumEl = $("#countPSummary");
   const playersN = parsed.allPlayers.length;
   if(parsed.errors.length){
     const e = parsed.errors[0];
     sumEl.innerHTML = `<span style="color:var(--bad)">Строка ${e.line}: ${esc(e.msg)}</span>`;
-  } else if(playersN > 16){
-    sumEl.innerHTML = `<span style="color:var(--bad)">Всего игроков: <b>${playersN}</b> — больше 16, лишние пары не войдут</span>`;
   } else {
     sumEl.innerHTML = `Всего игроков: <b>${playersN}</b>`;
   }
@@ -4312,13 +3507,11 @@ function updateCounts(){
   let restrictedMsg = `Всего <b>${rTotal}</b>`;
   if(hasDup){
     restrictedMsg += ` · <span style="color:var(--bad)">есть игроки в обоих списках</span>`;
-  } else if(rTotal > 24){
-    restrictedMsg += ` · <span style="color:var(--bad)">больше 24 — часть не сыграет</span>`;
   } else if(r > 0 && f < r){
     restrictedMsg += ` · <span style="color:var(--accent)">свободных меньше ограниченных — часть игроков из списка 1 будет чаще отдыхать</span>`;
   }
   cRestricted.innerHTML = restrictedMsg;
-  const warnRestricted = hasDup || rTotal > 24;
+  const warnRestricted = hasDup;
   $("#countR").classList.toggle("warn", warnRestricted);
   $("#countF").classList.toggle("warn", warnRestricted);
 
@@ -4326,14 +3519,10 @@ function updateCounts(){
   const soloN = parseList($("#listS").value).length;
   const cS = $("#countS");
   cS.textContent = plural(soloN, "игрок", "игрока", "игроков");
-  cS.classList.toggle("warn", soloN > 16);
+  cS.classList.toggle("warn", false);
   const soloMatches = soloN >= 2 ? (soloN * (soloN - 1)) / 2 : 0;
   const cSSum = $("#countSSummary");
-  if(soloN > 16){
-    cSSum.innerHTML = `<span style="color:var(--bad)">Больше 16 — лишние не сыграют</span>`;
-  } else {
-    cSSum.innerHTML = `Возможных матчей: <b>${soloMatches}</b>`;
-  }
+  cSSum.innerHTML = `Возможных матчей: <b>${soloMatches}</b>`;
 }
 function plural(n,one,few,many){
   const n10=n%10, n100=n%100;
@@ -4345,7 +3534,7 @@ function plural(n,one,few,many){
 }
 
 ["listA","listM","listW","listP","listR","listF","listS"].forEach(id=>{
-  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); if(DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs(); clearTimeout(flashT); });
+  $("#"+id).addEventListener("input",()=>{ syncInputsToDB(); updateCounts(); if(DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs(); if(typeof renderRestPicker==="function") renderRestPicker(); clearTimeout(flashT); });
   $("#"+id).addEventListener("change",()=>{ syncInputsToDB(); cleanupFixedPairs(); saveDB(); if(DB.mode!=="pairs" && DB.mode!=="restricted" && DB.mode!=="solo") renderFixedPairs(); });
 });
 
@@ -4362,10 +3551,16 @@ $("#fpAddBtn").addEventListener("click",()=>{
   if(DB.mode==="single"){
     if(used.has(a) || used.has(b)){ showErr("Один из выбранных игроков уже в фиксированной паре."); return; }
     DB.fixedPairs.push([a,b]);
+    const hk = pkey(a,b);
+    if(!Array.isArray(DB.fixedPairsHistory)) DB.fixedPairsHistory = [];
+    if(!DB.fixedPairsHistory.includes(hk)) DB.fixedPairsHistory.push(hk);
   } else {
     if(used1.has(a)){ showErr("Игрок «"+a+"» уже в фиксированной паре."); return; }
     if(used2.has(b)){ showErr("Игрок «"+b+"» уже в фиксированной паре."); return; }
     DB.fixedPairs.push([a,b]);
+    const hk = dkey(a,b);
+    if(!Array.isArray(DB.fixedPairsHistory)) DB.fixedPairsHistory = [];
+    if(!DB.fixedPairsHistory.includes(hk)) DB.fixedPairsHistory.push(hk);
   }
   saveDB();
   renderFixedPairs();
@@ -4413,7 +3608,6 @@ $("#copyLinkBtn").onclick=async ()=>{
   }catch(e){ showErr("Не удалось скопировать — скопируйте адрес из строки браузера вручную."); }
 };
 
-attachCascadeNav();
 attachDEFNav();
 applyDBToInputs();
 renderAll();
