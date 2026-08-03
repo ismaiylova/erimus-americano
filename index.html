@@ -164,6 +164,12 @@
   .delta-zero{color:var(--navy-soft)}
   tr.top1 td{background:rgba(47,95,208,.06)}
 
+  /* sort selector */
+  .sort-selector{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+  .sort-selector .sort-label{font-size:11px;color:var(--navy-soft);font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+  .seg.seg-sm{border-radius:8px}
+  .seg.seg-sm button{height:30px;padding:0 10px;font-size:12px;font-family:"IBM Plex Mono",monospace;font-weight:600}
+
   .meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
   .pill{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--navy-soft);background:var(--panel);border:1px solid var(--line);padding:6px 12px;border-radius:999px}
   .pill b{color:var(--blue);font-weight:600}
@@ -631,6 +637,56 @@
 
 <script>
 "use strict";
+
+/* ===================== sort mode (rating tables) ===================== */
+const SORT_STORE_KEY = "badminton_sort_by";
+function getSortBy(){
+  try{ return localStorage.getItem(SORT_STORE_KEY) === "avgDiff" ? "avgDiff" : "diff"; }
+  catch(_){ return "diff"; }
+}
+function setSortBy(v){
+  try{ localStorage.setItem(SORT_STORE_KEY, v === "avgDiff" ? "avgDiff" : "diff"); }catch(_){}
+}
+/* Финализирует массив рейтинга: добавляет avgDiff и сортирует по текущему режиму */
+function finalizeStandings(rows){
+  rows.forEach(r => { r.avgDiff = r.games > 0 ? r.diff / r.games : 0; });
+  const by = getSortBy();
+  if(by === "avgDiff"){
+    rows.sort((x,y) => y.avgDiff - x.avgDiff || y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  } else {
+    rows.sort((x,y) => y.diff - x.diff || y.avgDiff - x.avgDiff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  }
+  return rows;
+}
+/* Форматирование среднего Δ (2 знака после запятой, знак) */
+function fmtAvgDiff(v, games){
+  if(!games || games <= 0) return "—";
+  const sign = v > 0 ? "+" : "";
+  return sign + v.toFixed(2);
+}
+/* HTML переключателя способа сортировки. groupId — уникальный ключ для повторных вставок на одной странице */
+function sortSelectorHtml(groupId){
+  const by = getSortBy();
+  return `<div class="sort-selector" data-sort-group="${groupId||'default'}">
+    <span class="sort-label">Сортировка:</span>
+    <div class="seg seg-sm">
+      <button type="button" data-sort="diff" class="${by==='diff'?'on':''}">Δ</button>
+      <button type="button" data-sort="avgDiff" class="${by==='avgDiff'?'on':''}">Среднее Δ</button>
+    </div>
+  </div>`;
+}
+/* Общий обработчик для всех переключателей на странице */
+function attachSortHandlers(){
+  document.querySelectorAll("[data-sort-group] [data-sort]").forEach(btn => {
+    btn.onclick = () => {
+      setSortBy(btn.dataset.sort);
+      // Пере-рендер всех активных представлений
+      if(typeof renderAll === "function") renderAll();
+      if(typeof renderCascade === "function" && DB && DB.mode === "cascade") renderCascade();
+      if(typeof renderDEF === "function" && DB && DB.mode === "def") renderDEF();
+    };
+  });
+}
 
 /* ===================== persistence (local + cloud) ===================== */
 const STORE_KEY = "badminton_americano_v2";
@@ -1199,26 +1255,18 @@ function* combinations(arr, k){
 }
 
 /* Build a round with optional "locked" (fixed) pairs.
-   Locked pairs always play together; они не попадают в usedSet
-   (партнёрство внутри пары — намеренно повторяющееся). Случайный пул
-   заполняет оставшиеся слоты. Все пары (locked + random) перемешиваются,
-   чтобы рандомизировать корты и соперников.
+   Locked pairs always play together; they don't go into usedSet
+   (they're meant to repeat). Random pool fills the remaining slots.
+   All pairs (locked + random) are then shuffled to randomize who
+   plays on which court and against whom.
 
-   Если фикс. пар больше, чем помещается на кортах (K > courts*2), либо
-   игроков всего не хватает на все K пар одновременно — часть фикс. пар
-   отдыхает в этом туре. Отдых распределяется по playCount (кто играл
-   больше — отдыхает раньше), между фикс. и обычными игроками — независимо.
-
-   usedMatchSet (опционально) — множество mkey уже сыгранных фикс-vs-фикс
-   матчапов, чтобы избегать повторов, когда парам приходится ротироваться.
-
-   Алгоритм: перебираем число игр G сверху вниз; для каждого G пробуем
-   максимально возможное число играющих фикс. пар L (от Lmax до Lmin),
-   и внутри — все допустимые комбинации отдыхающих (сначала те, где
-   отдыхают больше «наигравшие»). */
-function buildSingleRound(players, lockedPairs, usedSet, playCount, courts, usedMatchSet){
+   Алгоритм выбора отдыхающих: перебираем ВСЕ возможные комбинации resters,
+   отсортированные по сумме playCount (по убыванию — отдыхают те, кто играл
+   больше). Это гарантирует нахождение валидного тура, если он существует,
+   и одновременно сохраняет балансировку нагрузки. */
+function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
   const K = lockedPairs.length;
-  usedMatchSet = usedMatchSet || new Set();
+  if(K > courts*2) return null; // не хватает кортов для всех фиксированных пар
 
   const lockedSet = new Set();
   for(const [a,b] of lockedPairs){
@@ -1228,123 +1276,66 @@ function buildSingleRound(players, lockedPairs, usedSet, playCount, courts, used
   const randomPool = players.filter(p => !lockedSet.has(p));
   const Rn = randomPool.length;
 
-  // Максимум игр за тур ограничен и кортами, и общей вместимостью
+  // games count: each game = 2 pairs = 4 seats. seats >= 2K (locked) and (seats - 2K) is even & ≤ Rn
   const maxGames = Math.min(courts, Math.floor((2*K + Rn)/4));
-  if(maxGames < 1) return null;
+  const minGames = Math.ceil(K/2); // нужно хотя бы столько кортов, чтобы все locked играли
+  if(maxGames < minGames || maxGames < 1) return null;
 
   const lockedKeySet = new Set(lockedPairs.map(p => pkey(p[0],p[1])));
-  const lockedIdx = lockedPairs.map((_,i) => i);
-  const lockedPC = lockedPairs.map(p => (playCount[p[0]]||0));
 
-  // Пробуем максимум игр в первую очередь
-  for(let games = maxGames; games >= 1; games--){
-    const pairSlots = games * 2;
-    // L — число фикс. пар, играющих в этом туре
-    const Lmax = Math.min(K, pairSlots);
-    const Lmin = Math.max(0, pairSlots - Math.floor(Rn/2));
-    if(Lmin > Lmax) continue;
+  // try games from max down to min — пытаемся вместить максимум
+  for(let games = maxGames; games >= Math.max(1, minGames); games--){
+    const seats = games*4;
+    const randomSeats = seats - 2*K;
+    if(randomSeats < 0 || randomSeats > Rn) continue;
+    const restN = Rn - randomSeats;
 
-    // Порядок: как можно больше локед пар играет одновременно
-    for(let L = Lmax; L >= Lmin; L--){
-      const restLocked = K - L;
-      const randomSeats = (pairSlots - L) * 2;
-      const restRandom = Rn - randomSeats;
-      if(randomSeats < 0 || randomSeats > Rn) continue;
+    // Перебираем все возможные множества отдыхающих, упорядоченные по предпочтению.
+    // Предпочтение = сумма playCount отдыхающих (больше = лучше — отдыхают те, кто играл больше).
+    // Случайный шум разрывает ничьи, чтобы при равных counts выбор каждый раз новый.
+    let resterSets;
+    if(restN === 0){
+      resterSets = [[]];
+    } else {
+      resterSets = Array.from(combinations(randomPool, restN));
+      const scored = resterSets.map(s => ({
+        rest: s,
+        score: s.reduce((sum,p) => sum + (playCount[p]||0), 0) + Math.random()*0.5
+      }));
+      scored.sort((a,b) => b.score - a.score);
+      resterSets = scored.map(x => x.rest);
+    }
 
-      // Множества отдыхающих фикс. пар — по убыванию playCount (кто играл больше — отдыхает)
-      let lockedRestSets;
-      if(restLocked === 0){
-        lockedRestSets = [[]];
-      } else if(restLocked === K){
-        lockedRestSets = [lockedIdx.slice()];
-      } else {
-        lockedRestSets = Array.from(combinations(lockedIdx, restLocked));
-        const scored = lockedRestSets.map(s => ({
-          rest: s,
-          score: s.reduce((sum,i) => sum + lockedPC[i], 0) + Math.random()*0.5
-        }));
-        scored.sort((a,b) => b.score - a.score);
-        lockedRestSets = scored.map(x => x.rest);
-      }
-
-      for(const lockedRestList of lockedRestSets){
-        const lockedRestSet = new Set(lockedRestList);
-        const playingLocked = lockedPairs.filter((_,i) => !lockedRestSet.has(i));
-
-        // Отдыхающие обычные игроки — тоже по playCount
-        let randomRestSets;
-        if(restRandom === 0){
-          randomRestSets = [[]];
-        } else {
-          randomRestSets = Array.from(combinations(randomPool, restRandom));
-          const scored = randomRestSets.map(s => ({
-            rest: s,
-            score: s.reduce((sum,p) => sum + (playCount[p]||0), 0) + Math.random()*0.5
-          }));
-          scored.sort((a,b) => b.score - a.score);
-          randomRestSets = scored.map(x => x.rest);
-        }
-
-        for(const randomRestList of randomRestSets){
-          const restSet = new Set(randomRestList);
-          const active = shuffle(randomPool.filter(p => !restSet.has(p)));
-          const pairs = randomSeats === 0 ? [] : tryPairUp(active, usedSet);
-          if(!pairs) continue;
-
-          // Собираем все играющие пары: playingLocked + случайные
-          const allPairs = [
-            ...playingLocked.map(p => [p[0], p[1]]),
-            ...pairs
-          ];
-
-          // Раскладываем на матчи с учётом usedMatchSet (только фикс-vs-фикс)
-          const matchup = tryMatchupNoRepeat(allPairs, lockedKeySet, usedMatchSet);
-          if(!matchup) continue;
-
-          shuffle(matchup); // случайная расстановка по кортам
-          const gamesArr = matchup.map((m, gi) => ({
-            court: gi+1,
-            t1: m[0], t2: m[1],
-            t1Fixed: lockedKeySet.has(pkey(m[0][0], m[0][1])),
-            t2Fixed: lockedKeySet.has(pkey(m[1][0], m[1][1])),
+    for(const restList of resterSets){
+      const restSet = new Set(restList);
+      const active = shuffle(randomPool.filter(p => !restSet.has(p)));
+      const pairs = randomSeats === 0 ? [] : tryPairUp(active, usedSet);
+      if(pairs){
+        // объединяем locked + random, перемешиваем (рандомная расстановка по кортам/матчам)
+        const allPairs = shuffle([
+          ...lockedPairs.map(p => [p[0], p[1]]),
+          ...pairs
+        ]);
+        const gamesArr = [];
+        for(let i=0; i<allPairs.length; i+=2){
+          const t1=allPairs[i], t2=allPairs[i+1];
+          gamesArr.push({
+            court: gamesArr.length+1,
+            t1, t2,
+            t1Fixed: lockedKeySet.has(pkey(t1[0],t1[1])),
+            t2Fixed: lockedKeySet.has(pkey(t2[0],t2[1])),
             sets: mkEmptySets()
-          }));
-          const activePlayers = [
-            ...playingLocked.flatMap(p => [p[0], p[1]]),
-            ...active
-          ];
-          const restingPlayers = [
-            ...lockedRestList.flatMap(i => [lockedPairs[i][0], lockedPairs[i][1]]),
-            ...randomRestList
-          ];
-          return { games: gamesArr, active: activePlayers, resting: restingPlayers };
+          });
         }
+        return {
+          games: gamesArr,
+          active: [...lockedSet, ...active],
+          resting: [...restList]
+        };
       }
     }
   }
   return null;
-}
-
-/* Раскладывает список пар (уже отобранных на тур) в матчи (пара vs пара).
-   Если обе пары в матче — фиксированные, проверяет, что такой матчап
-   (mkey) ещё не сыгран (usedMatchSet). Возвращает [[pairA, pairB], ...] или null. */
-function tryMatchupNoRepeat(pairs, lockedKeySet, usedMatchSet){
-  const result = [];
-  function bt(rem){
-    if(rem.length === 0) return true;
-    const a = rem[0], rest = rem.slice(1);
-    for(const k of shuffle(rest.map((_,i)=>i))){
-      const b = rest[k];
-      const aLocked = lockedKeySet.has(pkey(a[0],a[1]));
-      const bLocked = lockedKeySet.has(pkey(b[0],b[1]));
-      if(aLocked && bLocked && usedMatchSet.has(mkey(a,b))) continue;
-      result.push([a,b]);
-      if(bt(rest.filter((_,i) => i !== k))) return true;
-      result.pop();
-    }
-    return false;
-  }
-  return bt(pairs.slice()) ? result : null;
 }
 
 function matchCross(ms, ws, usedSet){
@@ -1654,44 +1645,29 @@ function addRounds(count, toMax){
       const players=parseList(DB.listA);
       if(players.length<4){ showErr("Нужно минимум 4 игрока."); return; }
       if(players.length>16){ showErr("Максимум 16 игроков."); return; }
-      // Хардовой проверки K > courts*2 больше нет: buildSingleRound сам умеет
-      // ротировать отдых между фикс. парами. Оставляем только очевидный тупик.
-      const maxSimul = Math.floor(players.length / 4);
-      if(K > 0 && maxSimul < 1){
-        showErr("Игроков слишком мало, чтобы построить хотя бы один матч.");
+      if(K > courts*2){
+        showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
         return;
       }
-      // «Все локед» и одновременно все помещаются на кортах чётным числом (без ротации отдыха):
-      // пары всегда одни и те же в каждом туре, меняется только расстановка по кортам/соперникам.
-      // Если K > courts*2 либо K нечётное — часть пар отдыхает и ротируется, уникальных туров много.
       const allLocked = (K*2 === players.length);
-      const staticRotation = allLocked && K > 0 && K % 2 === 0 && K <= courts*2;
-      const limit = toMax ? (staticRotation ? Math.max(1,count) : 999) : count;
-      if(toMax && staticRotation){
-        showErr("Все игроки в фиксированных парах и помещаются на кортах — добавляем "+limit+" тур(ов): пары одни и те же, меняется только расстановка по кортам.");
+      const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
+      if(toMax && allLocked){
+        showErr("Все игроки в фиксированных парах — добавляем "+limit+" тур(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
       }
-      // Локед-vs-локед матчапы уже сыгранные — из DB.usedMatchups (mkey)
-      let usedMatchSet = new Set(DB.usedMatchups);
       for(let i=0;i<limit;i++){
         const { rd } = tryBuildOne(
-          () => buildSingleRound(players, lockedPairs, usedSet, DB.playCount, courts, usedMatchSet),
-          () => {
-            usedSet = new Set();
-            usedMatchSet = new Set();
-            DB.cycle++; cycledInThisCall = true;
-          }
+          () => buildSingleRound(players, lockedPairs, usedSet, DB.playCount, courts),
+          () => { usedSet = new Set(); DB.cycle++; cycledInThisCall = true; }
         );
         if(!rd){ stopped=true; break; }
         rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(pkey(g.t1[0],g.t1[1]));
           if(!g.t2Fixed) usedSet.add(pkey(g.t2[0],g.t2[1]));
-          if(g.t1Fixed && g.t2Fixed) usedMatchSet.add(mkey(g.t1, g.t2));
         });
         rd.active.forEach(p=>DB.playCount[p]=(DB.playCount[p]||0)+1);
         DB.rounds.push(rd); added++;
       }
-      DB.usedMatchups = [...usedMatchSet];
     } else {
       const L1=parseList(DB.listM), L2=parseList(DB.listW);
       if(L1.length<2||L2.length<2){ showErr("В каждом списке минимум 2 человека."); return; }
@@ -1762,7 +1738,7 @@ function computeStandings(){
       t2.forEach(p => { const s=touch(p); s.scored+=res.conceded; s.conceded+=res.scored; s.diff-=d; if(res.winner<0) s.wins++; });
     });
   });
-  return Object.values(stat).sort((x,y)=> y.diff-x.diff || y.wins-x.wins || y.scored-x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 function renderStandings(){
   const box=$("#standings");
@@ -1773,13 +1749,15 @@ function renderStandings(){
       <h2>Таблица — разница воланов</h2>
       <button class="btn ghost" id="clearScores">Очистить счёт</button>
     </div>
+    ${sortSelectorHtml('main')}
     <table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     const cls=r.diff>0?"delta-pos":r.diff<0?"delta-neg":"delta-zero";
     const sign=r.diff>0?"+":"";
+    const clsA=r.avgDiff>0?"delta-pos":r.avgDiff<0?"delta-neg":"delta-zero";
     html+=`<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -1788,10 +1766,12 @@ function renderStandings(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html+=`</tbody></table></div>`;
   box.innerHTML=html;
+  attachSortHandlers();
   $("#clearScores").onclick=()=>{
     if(!confirm("Очистить все введённые счета? Сетка туров останется.")) return;
     DB.rounds.forEach(rd=>rd.games.forEach(g=>{
@@ -2391,7 +2371,7 @@ function computeCascadeStandings(scope){
   processRounds(DB.cascade.E.rounds, "E", false);
   processRounds(DB.cascade.F.rounds, "F", false);
 
-  return Object.values(stat).sort((x,y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 function renderCascadeStandingsCard(){
@@ -2399,13 +2379,15 @@ function renderCascadeStandingsCard(){
   if(!rows.length) return "";
   let html = `<div class="card" style="margin-bottom:14px">
     <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 12px;font-weight:800">Общая таблица — Этап 1</h2>
+    ${sortSelectorHtml('cascade-stage1')}
     <table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th>Ур.</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th>Ур.</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -2415,6 +2397,7 @@ function renderCascadeStandingsCard(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
@@ -2571,7 +2554,10 @@ function computeCascadeStandingsAllWithStage2Delta(){
   processRounds(DB.cascade.ABE.rounds, "—", false, true);
   processRounds(DB.cascade.EF.rounds,  "—", false, true);
 
-  return Object.values(stat).sort((x,y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  // avgDiff2 — среднее Δ по Этапу 2 (нужно для отдельной колонки)
+  const rows = Object.values(stat);
+  rows.forEach(r => { r.avgDiff2 = r.games2 > 0 ? r.diff2 / r.games2 : 0; });
+  return finalizeStandings(rows);
 }
 
 function renderCascadeStage2StandingsCard(){
@@ -2584,17 +2570,20 @@ function renderCascadeStage2StandingsCard(){
   }
   let html = `<div class="card" style="margin-bottom:14px">
     <h2 style="font-family:'Fraunces',serif;font-size:18px;margin:0 0 12px;font-weight:800">Общая таблица — оба этапа</h2>
+    ${sortSelectorHtml('cascade-all')}
     <table class="tbl"><thead><tr>
       <th>#</th><th>Игрок</th><th>Ур.</th>
-      <th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
-      <th class="num">Δ Эт.2</th>
+      <th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
+      <th class="num">Δ Эт.2</th><th class="num">Ср. Δ Эт.2</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     const cls2 = r.diff2 > 0 ? "delta-pos" : r.diff2 < 0 ? "delta-neg" : "delta-zero";
     const sign2 = r.diff2 > 0 ? "+" : "";
+    const clsA2 = r.avgDiff2 > 0 ? "delta-pos" : r.avgDiff2 < 0 ? "delta-neg" : "delta-zero";
     const lvlBadge = r.level === "—"
       ? `<span style="color:var(--navy-soft);font-size:11px">—</span>`
       : `<span class="lvl-badge-inline ${r.level.toLowerCase()}">${r.level}</span>`;
@@ -2602,6 +2591,7 @@ function renderCascadeStage2StandingsCard(){
       ? `${r.games} <span style="color:var(--navy-soft);font-size:11px;font-weight:500">(+${r.games2})</span>`
       : `${r.games}`;
     const delta2Cell = r.games2 > 0 ? `${sign2}${r.diff2}` : `<span style="color:var(--navy-soft)">—</span>`;
+    const avgDelta2Cell = r.games2 > 0 ? fmtAvgDiff(r.avgDiff2, r.games2) : `<span style="color:var(--navy-soft)">—</span>`;
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -2611,7 +2601,9 @@ function renderCascadeStage2StandingsCard(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
       <td class="num ${cls2}">${delta2Cell}</td>
+      <td class="num ${clsA2}">${avgDelta2Cell}</td>
     </tr>`;
   });
   html += `</tbody></table>
@@ -2784,7 +2776,7 @@ function computeCascadeStandingsForPlayers(playerSet){
   processRounds(DB.cascade.F.rounds, false);
   processRounds(DB.cascade.ABE.rounds, false);
   processRounds(DB.cascade.EF.rounds, false);
-  return Object.values(stat).sort((x,y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 /* ===== Рендер: Итоги — две таблицы ===== */
@@ -2809,6 +2801,7 @@ function renderCascadeTotals(){
   if(!abeRows.length || abeRows.every(r => r.games === 0)){
     html += `<p class="hint" style="margin:0;text-align:center">Нет сыгранных матчей со счётом для игроков из ABE.</p>`;
   } else {
+    html += sortSelectorHtml('totals-abe');
     html += renderFinalTable(abeRows);
   }
   html += `</div>`;
@@ -2823,6 +2816,7 @@ function renderCascadeTotals(){
   if(!efRows.length || efRows.every(r => r.games === 0)){
     html += `<p class="hint" style="margin:0;text-align:center">Нет сыгранных матчей со счётом для игроков из EF.</p>`;
   } else {
+    html += sortSelectorHtml('totals-ef');
     html += renderFinalTable(efRows);
   }
   html += `</div>`;
@@ -2832,12 +2826,13 @@ function renderCascadeTotals(){
 
 function renderFinalTable(rows){
   let html = `<table class="tbl"><thead><tr>
-    <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-    <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+    <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+    <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
   </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -2846,6 +2841,7 @@ function renderFinalTable(rows){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table>`;
@@ -2863,6 +2859,7 @@ function renderCascade(){
   else if(v === "distribution") renderCascadeDistribution();
   else if(v === "stage2") renderCascadeStage2();
   else renderCascadeTotals();
+  attachSortHandlers();
 }
 
 /* ===== Общий диспетчер добавления тура ===== */
@@ -3249,7 +3246,7 @@ function computeDEFGroupStandings(key){
   });
   // Добавим игроков без матчей, чтобы они тоже присутствовали в списке
   parseList(sub.input).forEach(p => touch(p));
-  return Object.values(stat).sort((x, y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 /* Все игроки, которые уже сыграли хотя бы один матч со счётом в Этапе 1 (по всем группам) */
@@ -3424,7 +3421,7 @@ function computeDEFStage2Standings(){
       t2.forEach(p => { const s = touch(p); s.games++; s.scored += res.conceded; s.conceded += res.scored; s.diff -= d; if(res.winner < 0) s.wins++; });
     });
   });
-  return Object.values(stat).sort((x, y) => y.diff - x.diff || y.wins - x.wins || y.scored - x.scored || x.name.localeCompare(y.name));
+  return finalizeStandings(Object.values(stat));
 }
 
 /* ===================================================================
@@ -3493,13 +3490,15 @@ function renderDEFGroupStandingsTable(key){
     <h4 style="font-family:'Fraunces',serif;font-size:14px;margin:0 0 8px;font-weight:700">
       <span class="lvl-badge-inline ${meta.cls}">${meta.label}</span> Рейтинг группы
     </h4>
+    ${sortSelectorHtml('def-group-'+key)}
     <table class="tbl" style="font-size:13px"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0 && r.games>0 ?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -3508,6 +3507,7 @@ function renderDEFGroupStandingsTable(key){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${r.games > 0 ? sign + r.diff : "—"}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
@@ -3689,13 +3689,15 @@ function renderDEFStage2StandingsTable(){
       <span class="lvl-badge-inline s2">2</span> Рейтинг Этапа 2 (с нуля)
     </h4>
     <p class="hint" style="margin:0 0 8px">Отдельный рейтинг Этапа 2 — рейтинги групп Этапа 1 сохранены, награждать будем по ним.</p>
+    ${sortSelectorHtml('def-stage2')}
     <table class="tbl" style="font-size:13px"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
   rows.forEach((r, i) => {
     const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
     const sign = r.diff > 0 ? "+" : "";
+    const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
     html += `<tr class="${i===0?'top1':''}">
       <td class="rank">${i+1}</td>
       <td class="name">${esc(r.name)}</td>
@@ -3704,6 +3706,7 @@ function renderDEFStage2StandingsTable(){
       <td class="num">${r.scored}</td>
       <td class="num">${r.conceded}</td>
       <td class="num ${cls}">${sign}${r.diff}</td>
+      <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
@@ -3799,7 +3802,8 @@ function renderDEFTotals(){
   let html = "";
   html += `<div class="card" style="margin-bottom:14px">
     <h2 style="font-family:'Fraunces',serif;font-size:20px;margin:0 0 6px;font-weight:800">Итоги · Этап 1</h2>
-    <p class="hint" style="margin:0 0 14px">Рейтинг считается по разнице воланов, отдельно в каждой группе — награждать будем по этим таблицам.</p>`;
+    <p class="hint" style="margin:0 0 14px">Рейтинг считается по разнице воланов, отдельно в каждой группе — награждать будем по этим таблицам.</p>
+    ${sortSelectorHtml('def-totals-stage1')}`;
   DEF_GROUPS.forEach(key => {
     const meta = DEF_GROUP_META[key];
     const rows = computeDEFGroupStandings(key);
@@ -3811,12 +3815,13 @@ function renderDEFTotals(){
       html += `<p class="hint" style="margin:0 0 8px">Нет сыгранных матчей со счётом.</p>`;
     } else {
       html += `<table class="tbl" style="margin-bottom:8px"><thead><tr>
-        <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-        <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+        <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+        <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
       </tr></thead><tbody>`;
       rows.forEach((r, i) => {
         const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
         const sign = r.diff > 0 ? "+" : "";
+        const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
         html += `<tr class="${i===0 && r.games>0 ?'top1':''}">
           <td class="rank">${i+1}</td>
           <td class="name">${esc(r.name)}</td>
@@ -3825,6 +3830,7 @@ function renderDEFTotals(){
           <td class="num">${r.scored}</td>
           <td class="num">${r.conceded}</td>
           <td class="num ${cls}">${r.games > 0 ? sign + r.diff : "—"}</td>
+          <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
         </tr>`;
       });
       html += `</tbody></table>`;
@@ -3843,13 +3849,15 @@ function renderDEFTotals(){
   if(!hasStage2){
     html += `<p class="hint" style="margin:0;text-align:center">Пока нет сыгранных матчей Этапа 2.</p>`;
   } else {
+    html += sortSelectorHtml('def-totals-stage2');
     html += `<table class="tbl"><thead><tr>
-      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Поб</th>
-      <th class="num">Заб</th><th class="num">Проп</th><th class="num">±</th>
+      <th>#</th><th>Игрок</th><th class="num">Игр</th><th class="num">Побед</th>
+      <th class="num">Забито</th><th class="num">Пропущено</th><th class="num">Δ</th><th class="num">Среднее Δ</th>
     </tr></thead><tbody>`;
     s2rows.forEach((r, i) => {
       const cls = r.diff > 0 ? "delta-pos" : r.diff < 0 ? "delta-neg" : "delta-zero";
       const sign = r.diff > 0 ? "+" : "";
+      const clsA = r.avgDiff > 0 ? "delta-pos" : r.avgDiff < 0 ? "delta-neg" : "delta-zero";
       html += `<tr class="${i===0?'top1':''}">
         <td class="rank">${i+1}</td>
         <td class="name">${esc(r.name)}</td>
@@ -3858,6 +3866,7 @@ function renderDEFTotals(){
         <td class="num">${r.scored}</td>
         <td class="num">${r.conceded}</td>
         <td class="num ${cls}">${sign}${r.diff}</td>
+        <td class="num ${clsA}">${fmtAvgDiff(r.avgDiff, r.games)}</td>
       </tr>`;
     });
     html += `</tbody></table>`;
@@ -3876,6 +3885,7 @@ function renderDEF(){
   if(v === "stage1") renderDEFStage1();
   else if(v === "stage2") renderDEFStage2();
   else renderDEFTotals();
+  attachSortHandlers();
 }
 
 /* ---------------------------------------------------------------------
