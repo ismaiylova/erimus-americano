@@ -1252,7 +1252,13 @@ function parsePairList(text){
   });
   return { pairs, errors, allPlayers: [...seen] };
 }
-function showErr(m){ const e=$("#err"); if(!m){e.classList.remove("show");e.textContent="";return;} e.textContent=m; e.classList.add("show"); }
+function showErr(m){
+  const e=$("#err");
+  if(!m){e.classList.remove("show");e.textContent="";return;}
+  e.textContent=m; e.classList.add("show");
+  // если сообщение оказалось за пределами экрана (нажали нижнюю кнопку) — подводим
+  if(typeof revealIfHidden==="function") revealIfHidden(e, "center");
+}
 
 /* Возвращает фиксированные пары, оставляя только те, что валидны для текущего режима/списков */
 function getValidFixedPairs(){
@@ -2126,7 +2132,9 @@ function addRounds(count, toMax){
   }
 
   saveDB();
-  renderAll();
+  const firstNewIdx = DB.rounds.length - added;
+  // Перерисовываем, удерживая экран на нажатой кнопке (страница не прыгает наверх)
+  anchoredRender(_addAnchorSel, renderAll);
   if(added===0){
     // Даже с автоповтором (или при toMax без него) не получилось
     let msg = "Тур построить не удалось: проверьте состав игроков, фиксированные пары и число кортов.";
@@ -2140,7 +2148,13 @@ function addRounds(count, toMax){
   } else if(cycledInThisCall){
     showErr("Все уникальные комбинации сыграны — начали новый круг (некоторые матчи повторятся).");
   }
-  $("#out").scrollIntoView({behavior:"smooth",block:"start"});
+  // Подводим новый тур, только если его не видно (нажали верхнюю кнопку).
+  // При нажатии нижней кнопки тур появляется прямо над ней — экран не двигаем.
+  if(added > 0){
+    const rounds = document.querySelectorAll("#out .round");
+    revealIfHidden(rounds[firstNewIdx], "start");
+  }
+  _addAnchorSel = null;
 }
 
 /* ===================== standings ===================== */
@@ -2367,8 +2381,49 @@ function renderRounds(){
   renderBottomBar();
 }
 
-/* Нижняя панель под списком туров: дублирует «Добавить тур(ы)»,
-   чтобы не прокручивать вверх после 5–6 туров. */
+/* ===================== прокрутка при добавлении туров =====================
+   Раньше после генерации тура страница прыгала к началу списка туров.
+   Теперь держим экран на месте: запоминаем положение кнопки, которую нажали,
+   и после перерисовки компенсируем сдвиг — кнопка остаётся там же, где была.
+   Если новый тур всё-таки оказался за пределами экрана (например, нажали
+   верхнюю кнопку), мягко подводим его. */
+let _addAnchorSel = null;   // CSS-селектор нажатой кнопки «добавить тур»
+
+/* Выполняет перерисовку, сохраняя визуальное положение элемента selector */
+function anchoredRender(selector, renderFn){
+  let before = null;
+  if(selector){
+    const el = document.querySelector(selector);
+    if(el) before = el.getBoundingClientRect().top;
+  }
+  renderFn();
+  if(before === null) return;
+  const el2 = document.querySelector(selector);
+  if(!el2) return;
+  const delta = el2.getBoundingClientRect().top - before;
+  if(Math.abs(delta) > 1){
+    try{ window.scrollBy(0, delta); }
+    catch(_){ try{ window.scrollTo(0, (window.pageYOffset||0) + delta); }catch(__){} }
+  }
+}
+
+/* Проверяет, виден ли элемент в окне (хотя бы частично, с запасом) */
+function isInViewport(el, pad){
+  if(!el || !el.getBoundingClientRect) return false;
+  const p = pad || 60;
+  const r = el.getBoundingClientRect();
+  const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+  return r.top < vh - p && r.bottom > p;
+}
+
+/* Мягко подводит элемент, только если он не виден */
+function revealIfHidden(el, block){
+  if(!el || isInViewport(el)) return;
+  try{ el.scrollIntoView({behavior:"smooth", block: block || "center"}); }
+  catch(_){ try{ el.scrollIntoView(); }catch(__){} }
+}
+
+
 function renderBottomBar(){
   let bar = document.getElementById("bottomBar");
   if(!bar){
@@ -2396,7 +2451,10 @@ function renderBottomBar(){
     <button class="btn primary" id="addBtnBottom">＋ Добавить тур(ы)</button>
     <button class="btn success" id="finishBtnBottom">✓ Завершить турнир</button>
     ${note}`;
-  document.getElementById("addBtnBottom").onclick = () => addRounds(Math.max(1,+($("#rounds").value)||1), false);
+  document.getElementById("addBtnBottom").onclick = () => {
+    _addAnchorSel = "#addBtnBottom";
+    addRounds(Math.max(1,+($("#rounds").value)||1), false);
+  };
   document.getElementById("finishBtnBottom").onclick = finishTournament;
 }
 
@@ -2450,6 +2508,8 @@ function abcdefShowErr(gkey, msg){
   if(!msg){ e.style.display="none"; e.textContent=""; return; }
   e.textContent = msg;
   e.style.display = "block";
+  // если сообщение оказалось за пределами экрана (нажали нижнюю кнопку) — подводим
+  if(typeof revealIfHidden==="function") revealIfHidden(e, "center");
 }
 
 /* Валидные фиксированные пары для группы (учитывает текущий режим) */
@@ -2768,7 +2828,9 @@ function abcdefAddRounds(gkey, count, toMax){
   }
 
   saveDB();
-  renderABCDEF();
+  const firstNewIdx = g.rounds.length - added;
+  // Перерисовываем, удерживая экран на нажатой кнопке (страница не прыгает наверх)
+  anchoredRender(_addAnchorSel, renderABCDEF);
   if(added === 0){
     let msg = "Тур построить не удалось. Проверьте состав, фикс. пары и число кортов.";
     if(g.mode==="pairs") msg = "Не удалось построить тур. Проверьте, что пар минимум 2.";
@@ -2781,6 +2843,12 @@ function abcdefAddRounds(gkey, count, toMax){
   } else if(cycledInThisCall){
     abcdefShowErr(gkey, "Все уникальные комбинации сыграны — начали новый круг (пары повторятся).");
   }
+  // Подводим новый тур, только если его не видно (нажали верхнюю кнопку).
+  if(added > 0){
+    const rounds = document.querySelectorAll(`[data-abcdef-group="${gkey}"] .abcdef-rounds-list .round`);
+    revealIfHidden(rounds[firstNewIdx], "start");
+  }
+  _addAnchorSel = null;
 }
 
 /* Рейтинг группы для мексикано: средняя Δ воланов по уже сыгранным турам группы.
@@ -3189,7 +3257,7 @@ function renderABCDEFGroupPanel(gkey){
     </div><!-- /.abcdef-settings-body -->
 
     <div class="actions">
-      <button class="btn primary" data-abcdef-add="${gkey}">${isMex ? "＋ Следующий тур" : "＋ Добавить тур(ы)"}</button>
+      <button class="btn primary" data-abcdef-add="${gkey}" data-pos="top">${isMex ? "＋ Следующий тур" : "＋ Добавить тур(ы)"}</button>
       <button class="btn danger" data-abcdef-reset="${gkey}">Сбросить туры</button>
     </div>
 
@@ -3210,7 +3278,7 @@ function renderABCDEFGroupPanel(gkey){
     html += `</div>`;
     if(!DB.finished){
       html += `<div class="abcdef-bottom-add">
-        <button class="btn primary" data-abcdef-add="${gkey}">${isMex ? "＋ Следующий тур" : "＋ Добавить тур(ы)"}</button>
+        <button class="btn primary" data-abcdef-add="${gkey}" data-pos="bottom">${isMex ? "＋ Следующий тур" : "＋ Добавить тур(ы)"}</button>
       </div>`;
     }
   } else {
@@ -3343,6 +3411,8 @@ function attachABCDEFHandlers(){
       const gkey = b.dataset.abcdefAdd;
       const inp = document.querySelector(`[data-abcdef-rounds="${gkey}"]`);
       const cnt = Math.max(1, +((inp && inp.value) || 1));
+      // якорь прокрутки — та кнопка, которую нажали
+      _addAnchorSel = `[data-abcdef-add="${gkey}"][data-pos="${b.dataset.pos || 'top'}"]`;
       abcdefAddRounds(gkey, cnt, false);
     };
   });
@@ -3877,7 +3947,7 @@ $("#rMinus").onclick=()=>roundsInput.value=Math.max(1,(+roundsInput.value||1)-1)
 $("#rPlus").onclick=()=>roundsInput.value=Math.min(30,(+roundsInput.value||1)+1);
 roundsInput.addEventListener("input",()=>roundsInput.value=roundsInput.value.replace(/[^0-9]/g,""));
 
-$("#addBtn").onclick=()=>addRounds(Math.max(1,+roundsInput.value||1),false);
+$("#addBtn").onclick=()=>{ _addAnchorSel = "#addBtn"; addRounds(Math.max(1,+roundsInput.value||1),false); };
 $("#printBtn").onclick=()=>window.print();
 $("#settingsToggle").onclick=()=>{
   DB.settingsCollapsed = !DB.settingsCollapsed;
