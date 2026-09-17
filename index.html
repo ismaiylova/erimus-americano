@@ -1338,6 +1338,7 @@ function evalMatch(sets, bestOf){
      "ok"     — всё заполнено и корректно
    - empties: массив {si, side} пустых полей (среди частично заполненных партий) */
 const MIN_WIN_SCORE = 21;
+const MAX_WIN_SCORE = 30;
 function validateGame(g){
   const sets = Array.isArray(g.sets) ? g.sets : [{ sa:g.sa||"", sb:g.sb||"" }];
   const empties = [];
@@ -1361,8 +1362,41 @@ function validateGame(g){
   });
   if(!anyFilled) return { state:"blank", empties:[] };
   if(!allFilled || empties.length) return { state:"empty", empties };
-  if(maxScore < MIN_WIN_SCORE) return { state:"low", empties:[] };
+  // Все поля заполнены — проверяем каждую партию на корректность счёта.
+  let worst = "ok";   // приоритет: bad > low > ok
+  sets.forEach(s => {
+    const a = parseInt((s.sa ?? "").toString(), 10);
+    const b = parseInt((s.sb ?? "").toString(), 10);
+    if(isNaN(a) || isNaN(b)) return;
+    const sv = scoreSetValidity(a, b);
+    if(sv === "bad") worst = "bad";
+    else if(sv === "low" && worst !== "bad") worst = "low";
+  });
+  if(worst === "bad") return { state:"bad", empties:[] };
+  if(worst === "low") return { state:"low", empties:[] };
   return { state:"ok", empties:[] };
+}
+
+/* Корректность счёта одной партии (бадминтон): "ok" | "low" | "bad".
+   low — никто не набрал 21 (вероятная опечатка).
+   bad — набрано >= 21, но такой комбинации быть не может:
+     • победа на 21 — только с разницей >= 2 (21:0 … 21:19);
+     • на равных играют «до разницы в 2» (22:20, 23:21, … 29:27);
+     • потолок — 30: либо 30:28 (разница 2), либо 30:29 (победа в одно очко). */
+function scoreSetValidity(a, b){
+  const hi = Math.max(a, b), lo = Math.min(a, b);
+  if(hi < MIN_WIN_SCORE) return "low";                        // 13:2 и т.п. — никто не дошёл до 21
+  if(hi > MAX_WIN_SCORE) return "bad";                        // больше 30 не бывает
+  if(hi === MIN_WIN_SCORE) return lo <= 19 ? "ok" : "bad";    // 21:0..21:19 (21:20 / 21:21 — нельзя)
+  if(hi === MAX_WIN_SCORE) return (lo === 28 || lo === 29) ? "ok" : "bad"; // 30:28 или 30:29
+  return (hi - lo === 2) ? "ok" : "bad";                      // 22..29 — только с разницей в 2 очка
+}
+
+/* Нужно ли автоматически перейти в следующее поле счёта после ввода значения v. */
+function scoreAutoAdvance(v){
+  // Две цифры (10–30) — всегда; одна цифра 4–9 — корректного двузначного счёта из неё
+  // уже не получится (максимум 30), поэтому тоже прыгаем. 0–3 оставляем: 1→1x, 2→2x, 3→30.
+  return v.length >= 2 || (v.length === 1 && +v >= 4);
 }
 /* Сводка по всем играм всех туров: сколько незаполненных / подозрительных */
 function scanRoundsIssues(){
@@ -1371,7 +1405,7 @@ function scanRoundsIssues(){
     const v = validateGame(g);
     if(v.state === "blank") blankGames++;
     else if(v.state === "empty") empty++;
-    else if(v.state === "low"){ low++; hasResult++; }
+    else if(v.state === "low" || v.state === "bad"){ low++; hasResult++; }
     else { filledGames++; hasResult++; }
   }));
   return { empty, low, filledGames, blankGames, hasResult };
@@ -1562,20 +1596,113 @@ function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
 function mexicanoRatings(){
   const rows = computeStandings(); // уже содержит avgDiff и games
   const m = new Map();
-  rows.forEach(r => m.set(r.name, { avgDiff: r.avgDiff||0, games: r.games||0 }));
+  rows.forEach(r => m.set(r.name, { avgDiff: r.avgDiff||0, games: r.games||0, wins: r.wins||0 }));
   return m;
 }
 
+/* ===== Мексикано: антиповтор пар/соперников =====
+   Память MEX_MEMORY последних туров, потолок разброса мест внутри четвёрки MEX_SPREAD. */
+const MEX_MEMORY = 5;   // за сколько последних туров избегаем повторов пар/соперников
+const MEX_SPREAD = 6;   // потолок разброса мест внутри четвёрки (плотность игр по уровню)
+/* Вес повтора по свежести: индекс — возраст тура (0 = прошлый тур, 1 = позапрошлый, …).
+   Повтор прошлого тура «дороже» старого, поэтому повторы разносятся во времени
+   (не идут два тура подряд), а общее их число за окно почти не меняется. */
+const MEX_RECENCY = [8, 4, 2, 1, 1];
+
+/* pkey-счётчики совместных появлений на одном корте за последние MEX_MEMORY туров.
+   { co, pc }: co — любая пара (партнёры ИЛИ соперники), pc — только партнёры. */
+function mexicanoRecentMaps(historyRounds){
+  const co = new Map(), pc = new Map();
+  const rounds = Array.isArray(historyRounds) ? historyRounds : [];
+  const recent = rounds.slice(-MEX_MEMORY);
+  const L = recent.length;
+  const bump = (m, k, w) => m.set(k, (m.get(k)||0) + w);
+  recent.forEach((rd, idx) => {
+    const age = (L - 1) - idx;                          // 0 — прошлый тур, дальше — старее
+    const w = (MEX_RECENCY[age] != null) ? MEX_RECENCY[age] : 1;
+    (rd.games||[]).forEach(g => {
+      const t1 = g.t1||[], t2 = g.t2||[];
+      const four = [...t1, ...t2];
+      for(let i=0;i<four.length;i++)
+        for(let j=i+1;j<four.length;j++)
+          bump(co, pkey(four[i], four[j]), w);
+      if(t1.length === 2) bump(pc, pkey(t1[0], t1[1]), w);
+      if(t2.length === 2) bump(pc, pkey(t2[0], t2[1]), w);
+    });
+  });
+  return { co, pc };
+}
+function mexicanoRecentPartnerCounts(historyRounds){
+  return mexicanoRecentMaps(historyRounds).pc;
+}
+
+/* Сборка четвёрок: плотный старт (подряд по рейтингу) + локальные обмены игроков
+   между кортами. Обмен принимается, только если снижает суммарный повтор и ни в одной
+   четвёрке разброс мест не превысил MEX_SPREAD. ordered — играющие по убыванию рейтинга.
+   Возвращает массив четвёрок (каждая — массив из 4 имён). */
+function mexicanoGroupAntiRepeat(ordered, historyRounds){
+  const { co } = mexicanoRecentMaps(historyRounds);
+  const pos = new Map(); ordered.forEach((p, i) => pos.set(p, i));
+  const courts = [];
+  for(let i=0; i<ordered.length; i+=4) courts.push(ordered.slice(i, i+4));
+  const span = four => {
+    let mn = Infinity, mx = -Infinity;
+    four.forEach(p => { const x = pos.get(p); if(x < mn) mn = x; if(x > mx) mx = x; });
+    return mx - mn;
+  };
+  const cost = four => {
+    let s = 0;
+    for(let i=0;i<four.length;i++)
+      for(let j=i+1;j<four.length;j++)
+        s += (co.get(pkey(four[i], four[j]))||0);
+    return s;
+  };
+  const PASSES = 12;
+  for(let pass=0; pass<PASSES; pass++){
+    let improved = false;
+    const pairs = [];
+    for(let i=0;i<courts.length;i++)
+      for(let j=i+1;j<courts.length;j++) pairs.push([i, j]);
+    shuffle(pairs);
+    for(const [i, j] of pairs){
+      const ci = courts[i], cj = courts[j];
+      const base = cost(ci) + cost(cj);
+      let bestGain = 1e-9, bestMove = null;
+      for(let a=0;a<ci.length;a++){
+        for(let b=0;b<cj.length;b++){
+          const ni = ci.slice(); const nj = cj.slice();
+          ni[a] = cj[b]; nj[b] = ci[a];
+          if(span(ni) > MEX_SPREAD || span(nj) > MEX_SPREAD) continue;
+          const gain = base - (cost(ni) + cost(nj)) + Math.random()*0.001;
+          if(gain > bestGain){ bestGain = gain; bestMove = [ni, nj]; }
+        }
+      }
+      if(bestMove){ courts[i] = bestMove[0]; courts[j] = bestMove[1]; improved = true; }
+    }
+    if(!improved) break;
+  }
+  return courts;
+}
+
+/* Внутри четвёрки (fourSorted — сильный→слабый) сбалансированный сплит с меньшим
+   повтором партнёров: 1+4 / 2+3 либо 1+3 / 2+4 (оба ровные по силе). */
+function mexicanoSplitTeams(fourSorted, pc){
+  const [a, b, c, d] = fourSorted;
+  const opt1 = [[a, d], [b, c]];   // 1+4 vs 2+3 — самый ровный (при равенстве берём его)
+  const opt2 = [[a, c], [b, d]];   // 1+3 vs 2+4 — тоже ровный
+  const pcost = o => (pc.get(pkey(o[0][0], o[0][1]))||0) + (pc.get(pkey(o[1][0], o[1][1]))||0);
+  return pcost(opt1) <= pcost(opt2) ? opt1 : opt2;
+}
+
 /* Строит один тур мексикано.
-   players     — актуальный список игроков (в порядке ввода).
-   forcedRest  — Set имён, принудительно отдыхающих (учитываются в балансе отдыха).
-   ratings     — Map name -> {avgDiff, games} (текущий рейтинг).
-   restCount   — объект name -> сколько раз игрок уже отдыхал (для равномерности).
-   firstRound  — признак первого тура (пары случайны). Если не передан, берётся
-                 из глобального DB.rounds (обычные режимы). В режиме ABCDEF сюда
-                 передаётся число туров конкретной группы.
+   players       — актуальный список игроков (в порядке ввода).
+   forcedRest    — Set имён, принудительно отдыхающих (учитываются в балансе отдыха).
+   ratings       — Map name -> {avgDiff, games} (текущий рейтинг).
+   restCount     — объект name -> сколько раз игрок уже отдыхал (для равномерности).
+   firstRound    — признак первого тура (пары случайны). Если не передан, берётся из DB.rounds.
+   historyRounds — массив сыгранных туров: из последних MEX_MEMORY строится «память» антиповтора.
    Возвращает { games, active, resting } либо null. */
-function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound){
+function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound, historyRounds){
   const uniq = [...new Set(players)];
   const N = uniq.length;
   if(N < 4) return null;
@@ -1606,6 +1733,8 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound)
   if(playing.length < 4 || playing.length % 4 !== 0) return null;
 
   const isFirstRound = (firstRound === undefined) ? (DB.rounds.length === 0) : !!firstRound;
+
+  // Порядок игроков: случайный в первом туре, дальше по рейтингу (выше avgDiff — выше).
   let ordered;
   if(isFirstRound){
     ordered = shuffle([...playing]);       // первый тур — полностью случайно
@@ -1614,22 +1743,42 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound)
       const ra = ratings.has(a) ? ratings.get(a).avgDiff : 0;
       const rb = ratings.has(b) ? ratings.get(b).avgDiff : 0;
       if(rb !== ra) return rb - ra;        // выше рейтинг — выше в списке
-      return Math.random() - 0.5;          // равные — случайно
+      // равный рейтинг: выше ставим того, у кого больше побед — он попадёт на более
+      // сильный корт, а игрок с меньшим числом побед — на более слабый.
+      const wa = ratings.has(a) ? (ratings.get(a).wins||0) : 0;
+      const wb = ratings.has(b) ? (ratings.get(b).wins||0) : 0;
+      if(wb !== wa) return wb - wa;        // больше побед — выше
+      return Math.random() - 0.5;          // полностью равные — случайно
     });
   }
 
-  // четвёрки: 1-й+4-й против 2-го+3-го
-  const gamesArr = [];
-  for(let i=0; i<ordered.length; i+=4){
-    const four = ordered.slice(i, i+4);
-    gamesArr.push({
-      court: gamesArr.length + 1,
-      t1: [four[0], four[3]],
-      t2: [four[1], four[2]],
+  // Разбиение на четвёрки.
+  //  • Первый тур — просто подряд (порядок и так случайный).
+  //  • Дальше — антиповтор: по «памяти» последних MEX_MEMORY туров собираем, кто с кем
+  //    уже был на одном корте, стартуем с плотнейшей нарезки и локальными обменами
+  //    (потолок разброса MEX_SPREAD) снижаем повторы, не расплывая четвёрки по рейтингу.
+  let courts;
+  if(isFirstRound){
+    courts = [];
+    for(let i=0; i<ordered.length; i+=4) courts.push(ordered.slice(i, i+4));
+  } else {
+    courts = mexicanoGroupAntiRepeat(ordered, historyRounds);
+  }
+
+  // Распасовка внутри четвёрки: сильнейший+слабейший против двух средних,
+  // выбирая из двух ровных вариантов тот, где партнёрство реже повторялось.
+  const pos = new Map(); ordered.forEach((p, i) => pos.set(p, i));
+  const recentPC = mexicanoRecentPartnerCounts(historyRounds);
+  const gamesArr = courts.map((four, gi) => {
+    const fs = [...four].sort((a,b) => pos.get(a) - pos.get(b));  // сильный→слабый
+    const [t1, t2] = mexicanoSplitTeams(fs, recentPC);
+    return {
+      court: gi + 1,
+      t1, t2,
       t1Fixed: false, t2Fixed: false,
       sets: mkEmptySets()
-    });
-  }
+    };
+  });
 
   return { games: gamesArr, active: [...playing], resting: [...resting] };
 }
@@ -1949,7 +2098,7 @@ function addRounds(count, toMax){
     const forced = new Set(DB.forcedRest||[]);
     const ratings = mexicanoRatings();
     if(!(DB.restCount && typeof DB.restCount === "object")) DB.restCount = {};
-    const rd = buildMexicanoRound(players, forced, ratings, DB.restCount);
+    const rd = buildMexicanoRound(players, forced, ratings, DB.restCount, undefined, DB.rounds);
     if(!rd){
       showErr("Не удалось построить тур. Проверьте число игроков и принудительный отдых (играющих должно получаться кратно 4).");
       return;
@@ -2295,8 +2444,9 @@ function renderRounds(){
       const emptyKey = new Set(v.empties.map(e => e.si+"|"+e.side));
       const setsHtml = sets.map((s, si) => {
         const label = sets.length > 1 ? `<span class="set-label">Партия ${si+1}</span>` : "";
-        const clsA = emptyKey.has(si+"|a") ? " score-empty" : (v.state==="low" ? " score-low" : "");
-        const clsB = emptyKey.has(si+"|b") ? " score-empty" : (v.state==="low" ? " score-low" : "");
+        const badScore = (v.state==="low" || v.state==="bad");
+        const clsA = emptyKey.has(si+"|a") ? " score-empty" : (badScore ? " score-low" : "");
+        const clsB = emptyKey.has(si+"|b") ? " score-empty" : (badScore ? " score-low" : "");
         const dis = DB.finished ? " disabled" : "";
         return `<div class="set">
           ${label}
@@ -2310,8 +2460,10 @@ function renderRounds(){
         warnHtml = `<div class="game-warn warn-empty"><span>⚠</span> Заполните оба поля счёта.</div>`;
       } else if(v.state === "low"){
         warnHtml = `<div class="game-warn warn-low"><span>⚠</span> Ни в одной партии нет счёта ≥ ${MIN_WIN_SCORE} — проверьте, не опечатка ли (например, 16:2 вместо 16:21).</div>`;
+      } else if(v.state === "bad"){
+        warnHtml = `<div class="game-warn warn-low"><span>⚠</span> Такого счёта не бывает: до ${MIN_WIN_SCORE} нужно вести ≥ 2 очков, на равных — «до разницы в 2» (22:20, 27:29), потолок — 30:29.</div>`;
       }
-      const invalidCls = (v.state==="empty"||v.state==="low") ? " game-invalid" : "";
+      const invalidCls = (v.state==="empty"||v.state==="low"||v.state==="bad") ? " game-invalid" : "";
       html+=`<div class="game${hasFixed?' has-fixed':''}${isSolo?' solo':''}${invalidCls}">
         <div class="court"><span>Корт ${g.court}</span><b>Игра ${gi+1}</b></div>
         <div class="vs-row">
@@ -2351,8 +2503,9 @@ function renderRounds(){
       game.sets[si][side==="a"?"sa":"sb"]=inp.value;
       // legacy: чистим старые sa/sb
       delete game.sa; delete game.sb;
-      // авто-переход: как только введены 2 цифры — прыгаем в следующее поле
-      if(inp.value.length >= 2){
+      // авто-переход в следующее поле, когда счёт уже нельзя осмысленно дополнить
+      // (две цифры 10–30, либо одна цифра 4–9 — из неё двузначного счёта не выйдет).
+      if(scoreAutoAdvance(inp.value)){
         const seq = +inp.dataset.seq;
         const next = scoreInputs[seq+1];
         if(next && !next.disabled){
@@ -2637,7 +2790,7 @@ function abcdefAddRounds(gkey, count, toMax){
       const forced = new Set(g.forcedRest||[]);
       if(!(g.restCount && typeof g.restCount === "object" && !Array.isArray(g.restCount))) g.restCount = {};
       const ratings = abcdefMexicanoRatings(g);
-      const rd = buildMexicanoRound(players, forced, ratings, g.restCount, g.rounds.length === 0);
+      const rd = buildMexicanoRound(players, forced, ratings, g.restCount, g.rounds.length === 0, g.rounds);
       if(!rd){
         abcdefShowErr(gkey, "Не удалось построить тур. Нужно минимум 4 игрока, а играющих (с учётом отдыхающих) должно получаться кратно 4.");
         return;
@@ -2857,7 +3010,7 @@ function abcdefAddRounds(gkey, count, toMax){
 function abcdefMexicanoRatings(g){
   const rows = abcdefComputeStandings(g);
   const m = new Map();
-  rows.forEach(r => m.set(r.name, { avgDiff: r.avgDiff||0, games: r.games||0 }));
+  rows.forEach(r => m.set(r.name, { avgDiff: r.avgDiff||0, games: r.games||0, wins: r.wins||0 }));
   return m;
 }
 
@@ -2910,8 +3063,9 @@ function renderABCDEFRound(g, gkey, rd, ri){
     const dis = DB.finished ? " disabled" : "";
     const setsHtml = sets.map((s, si) => {
       const label = sets.length > 1 ? `<span class="set-label">Партия ${si+1}</span>` : "";
-      const clsA = emptyKey.has(si+"|a") ? " score-empty" : (v.state==="low" ? " score-low" : "");
-      const clsB = emptyKey.has(si+"|b") ? " score-empty" : (v.state==="low" ? " score-low" : "");
+      const badScore = (v.state==="low" || v.state==="bad");
+      const clsA = emptyKey.has(si+"|a") ? " score-empty" : (badScore ? " score-low" : "");
+      const clsB = emptyKey.has(si+"|b") ? " score-empty" : (badScore ? " score-low" : "");
       return `<div class="set">
         ${label}
         <input class="mono${clsA}" inputmode="numeric" maxlength="2" value="${esc(s.sa)}" data-abcdef-score="${gkey}" data-r="${ri}" data-g="${gi}" data-set="${si}" data-side="a"${dis}>
@@ -2924,8 +3078,10 @@ function renderABCDEFRound(g, gkey, rd, ri){
       warnHtml = `<div class="game-warn warn-empty"><span>⚠</span> Заполните оба поля счёта.</div>`;
     } else if(v.state === "low"){
       warnHtml = `<div class="game-warn warn-low"><span>⚠</span> Ни в одной партии нет счёта ≥ ${MIN_WIN_SCORE} — проверьте опечатку.</div>`;
+    } else if(v.state === "bad"){
+      warnHtml = `<div class="game-warn warn-low"><span>⚠</span> Такого счёта не бывает: до ${MIN_WIN_SCORE} нужно вести ≥ 2 очков, на равных — «до разницы в 2» (22:20, 27:29), потолок — 30:29.</div>`;
     }
-    const invalidCls = (v.state==="empty"||v.state==="low") ? " game-invalid" : "";
+    const invalidCls = (v.state==="empty"||v.state==="low"||v.state==="bad") ? " game-invalid" : "";
     html += `<div class="game${hasFixed?' has-fixed':''}${isSolo?' solo':''}${invalidCls}">
       <div class="court"><span>Корт ${gm.court}</span><b>Игра ${gi+1}</b></div>
       <div class="vs-row">
@@ -3521,8 +3677,8 @@ function attachABCDEFHandlers(){
       while(gm.sets.length <= si) gm.sets.push({sa:"", sb:""});
       gm.sets[si][side==="a"?"sa":"sb"] = inp.value;
       delete gm.sa; delete gm.sb;
-      // авто-переход: как только введены 2 цифры — прыгаем в следующее поле
-      if(inp.value.length >= 2) abcdefFocusNext(gkey, +inp.dataset.seq);
+      // авто-переход: две цифры (10–30) — всегда; одна цифра 4–9 — дальше не продолжить.
+      if(scoreAutoAdvance(inp.value)) abcdefFocusNext(gkey, +inp.dataset.seq);
     });
     // Enter → следующее поле
     inp.addEventListener("keydown", (e) => {
@@ -3622,7 +3778,7 @@ function finishTournament(){
   if(issues.empty || issues.low){
     const parts = [];
     if(issues.empty) parts.push(`незаполненных игр: ${issues.empty}`);
-    if(issues.low) parts.push(`игр с подозрительным счётом (нет ≥ ${MIN_WIN_SCORE}): ${issues.low}`);
+    if(issues.low) parts.push(`игр с подозрительным счётом: ${issues.low}`);
     warn = "\n\nВнимание, есть проблемы со счётом:\n• " + parts.join("\n• ") +
            "\n\nПосле завершения исправить их будет нельзя.";
   }
@@ -3646,7 +3802,7 @@ function scanABCDEFIssues(){
       const v = validateGame(gm);
       if(v.state==="blank") blankGames++;
       else if(v.state==="empty") empty++;
-      else if(v.state==="low"){ low++; hasResult++; }
+      else if(v.state==="low" || v.state==="bad"){ low++; hasResult++; }
       else { filledGames++; hasResult++; }
     }));
   });
