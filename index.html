@@ -1701,8 +1701,10 @@ function mexicanoSplitTeams(fourSorted, pc){
    restCount     — объект name -> сколько раз игрок уже отдыхал (для равномерности).
    firstRound    — признак первого тура (пары случайны). Если не передан, берётся из DB.rounds.
    historyRounds — массив сыгранных туров: из последних MEX_MEMORY строится «память» антиповтора.
+   maxCourts     — максимум кортов: играют не больше maxCourts*4 человек, остальные отдыхают
+                   (число участников при этом не ограничено). Если не передан — без ограничения.
    Возвращает { games, active, resting } либо null. */
-function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound, historyRounds){
+function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound, historyRounds, maxCourts){
   const uniq = [...new Set(players)];
   const N = uniq.length;
   if(N < 4) return null;
@@ -1713,6 +1715,11 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound,
   // посаженных (с добором кратно 4, чтобы играющих было кратно 4).
   let restTotal = N % 4;
   while(restTotal < forced.length) restTotal += 4;
+  // Ограничение по кортам: на площадке максимум maxCourts кортов, т.е. играют не более
+  // maxCourts*4 человек; лишние (например, сверх 16 при 4 кортах) уходят в отдых.
+  // Число участников при этом ничем не ограничено.
+  const courtCap = (maxCourts && maxCourts > 0) ? maxCourts * 4 : Infinity;
+  while(N - restTotal > courtCap) restTotal += 4;
   if(restTotal > N) return null;
 
   const resting = new Set(forced);
@@ -2098,7 +2105,7 @@ function addRounds(count, toMax){
     const forced = new Set(DB.forcedRest||[]);
     const ratings = mexicanoRatings();
     if(!(DB.restCount && typeof DB.restCount === "object")) DB.restCount = {};
-    const rd = buildMexicanoRound(players, forced, ratings, DB.restCount, undefined, DB.rounds);
+    const rd = buildMexicanoRound(players, forced, ratings, DB.restCount, undefined, DB.rounds, courts);
     if(!rd){
       showErr("Не удалось построить тур. Проверьте число игроков и принудительный отдых (играющих должно получаться кратно 4).");
       return;
@@ -2790,7 +2797,7 @@ function abcdefAddRounds(gkey, count, toMax){
       const forced = new Set(g.forcedRest||[]);
       if(!(g.restCount && typeof g.restCount === "object" && !Array.isArray(g.restCount))) g.restCount = {};
       const ratings = abcdefMexicanoRatings(g);
-      const rd = buildMexicanoRound(players, forced, ratings, g.restCount, g.rounds.length === 0, g.rounds);
+      const rd = buildMexicanoRound(players, forced, ratings, g.restCount, g.rounds.length === 0, g.rounds, courts);
       if(!rd){
         abcdefShowErr(gkey, "Не удалось построить тур. Нужно минимум 4 игрока, а играющих (с учётом отдыхающих) должно получаться кратно 4.");
         return;
