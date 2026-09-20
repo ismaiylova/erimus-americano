@@ -1608,6 +1608,10 @@ const MEX_SPREAD = 6;   // потолок разброса мест внутри
    Повтор прошлого тура «дороже» старого, поэтому повторы разносятся во времени
    (не идут два тура подряд), а общее их число за окно почти не меняется. */
 const MEX_RECENCY = [8, 4, 2, 1, 1];
+/* Штраф за «широкую» четвёрку: за каждую позицию разброса свыше 4 добавляем
+   MEX_SPAN_PENALTY к стоимости. Так четвёрки держатся плотнее (ровнее по уровню),
+   а разброс тратится только на разведение достаточно свежих повторов. */
+const MEX_SPAN_PENALTY = 3;
 
 /* pkey-счётчики совместных появлений на одном корте за последние MEX_MEMORY туров.
    { co, pc }: co — любая пара (партнёры ИЛИ соперники), pc — только партнёры. */
@@ -1657,6 +1661,8 @@ function mexicanoGroupAntiRepeat(ordered, historyRounds){
         s += (co.get(pkey(four[i], four[j]))||0);
     return s;
   };
+  // «Плохость» четвёрки = повторы + штраф за ширину сверх 4 позиций.
+  const badness = four => cost(four) + MEX_SPAN_PENALTY * Math.max(0, span(four) - 4);
   const PASSES = 12;
   for(let pass=0; pass<PASSES; pass++){
     let improved = false;
@@ -1666,15 +1672,20 @@ function mexicanoGroupAntiRepeat(ordered, historyRounds){
     shuffle(pairs);
     for(const [i, j] of pairs){
       const ci = courts[i], cj = courts[j];
-      const base = cost(ci) + cost(cj);
-      let bestGain = 1e-9, bestMove = null;
+      const base = badness(ci) + badness(cj);
+      // Принимаем только обмены, которые реально снижают «плохость» (без пустого
+      // перетасовывания). Среди равных по выигрышу — случайный выбор.
+      let bestGain = 1e-9, bestRnd = -1, bestMove = null;
       for(let a=0;a<ci.length;a++){
         for(let b=0;b<cj.length;b++){
           const ni = ci.slice(); const nj = cj.slice();
           ni[a] = cj[b]; nj[b] = ci[a];
           if(span(ni) > MEX_SPREAD || span(nj) > MEX_SPREAD) continue;
-          const gain = base - (cost(ni) + cost(nj)) + Math.random()*0.001;
-          if(gain > bestGain){ bestGain = gain; bestMove = [ni, nj]; }
+          const gain = base - (badness(ni) + badness(nj));
+          if(gain > 1e-9){
+            const rnd = Math.random();
+            if(gain > bestGain || (gain === bestGain && rnd > bestRnd)){ bestGain = gain; bestRnd = rnd; bestMove = [ni, nj]; }
+          }
         }
       }
       if(bestMove){ courts[i] = bestMove[0]; courts[j] = bestMove[1]; improved = true; }
@@ -1727,7 +1738,15 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound,
   // Добор отдыхающих до restTotal: равномерно — среди тех, кто отдыхал меньше всех.
   if(resting.size < restTotal){
     const candidates = uniq.filter(p => !resting.has(p));
+    // Кто отдыхал в прошлом туре — в конец очереди на отдых («кулдаун»), чтобы никто
+    // не сидел два тура подряд; среди остальных — по суммарному числу отдыхов (справедливо).
+    const lastRest = new Set(
+      (Array.isArray(historyRounds) && historyRounds.length)
+        ? (historyRounds[historyRounds.length - 1].resting || [])
+        : []
+    );
     candidates.sort((a,b) =>
+      ((lastRest.has(a)?1:0) - (lastRest.has(b)?1:0)) ||
       ((restCount[a]||0) - (restCount[b]||0)) || (Math.random() - 0.5)
     );
     for(const p of candidates){
