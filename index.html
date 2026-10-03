@@ -1603,7 +1603,7 @@ function mexicanoRatings(){
 /* ===== Мексикано: антиповтор пар/соперников =====
    Память MEX_MEMORY последних туров, потолок разброса мест внутри четвёрки MEX_SPREAD. */
 const MEX_MEMORY = 5;   // за сколько последних туров избегаем повторов пар/соперников
-const MEX_SPREAD = 6;   // потолок разброса мест внутри четвёрки (плотность игр по уровню)
+const MEX_SPREAD = 6;   // потолок разброса мест ОБЩЕГО рейтинга внутри четвёрки (плотность игр по уровню)
 /* Вес повтора по свежести: индекс — возраст тура (0 = прошлый тур, 1 = позапрошлый, …).
    Повтор прошлого тура «дороже» старого, поэтому повторы разносятся во времени
    (не идут два тура подряд), а общее их число за окно почти не меняется. */
@@ -1612,6 +1612,11 @@ const MEX_RECENCY = [8, 4, 2, 1, 1];
    MEX_SPAN_PENALTY к стоимости. Так четвёрки держатся плотнее (ровнее по уровню),
    а разброс тратится только на разведение достаточно свежих повторов. */
 const MEX_SPAN_PENALTY = 3;
+/* Запрет на ту же четвёрку два тура подряд: четвёрка, целиком совпавшая с четвёркой
+   прошлого тура, получает этот штраф (заведомо больше любых повторов и ширины), и её
+   корт обменивается первым. Если потолок разброса всё равно не дал её развести —
+   делается один «спасательный» обмен с минимальным превышением потолка. */
+const MEX_SAME_FOUR_PENALTY = 1000;
 
 /* pkey-счётчики совместных появлений на одном корте за последние MEX_MEMORY туров.
    { co, pc }: co — любая пара (партнёры ИЛИ соперники), pc — только партнёры. */
@@ -1643,10 +1648,17 @@ function mexicanoRecentPartnerCounts(historyRounds){
 /* Сборка четвёрок: плотный старт (подряд по рейтингу) + локальные обмены игроков
    между кортами. Обмен принимается, только если снижает суммарный повтор и ни в одной
    четвёрке разброс мест не превысил MEX_SPREAD. ordered — играющие по убыванию рейтинга.
+   rankPos — Map имя -> место в общем рейтинге (включая отдыхающих): разброс и штраф
+   считаются в местах таблицы, поэтому «дырки» от отдыхающих не сближают далёких игроков.
+   Если из-за отдыхающих четвёрка уже шире MEX_SPREAD, обмен не должен её расширять.
+   Та же четвёрка, что в прошлом туре, не допускается (если играет больше одного корта):
+   сначала приоритетом и штрафом MEX_SAME_FOUR_PENALTY, в крайнем случае — обменом
+   сверх потолка разброса.
    Возвращает массив четвёрок (каждая — массив из 4 имён). */
-function mexicanoGroupAntiRepeat(ordered, historyRounds){
+function mexicanoGroupAntiRepeat(ordered, historyRounds, rankPos){
   const { co } = mexicanoRecentMaps(historyRounds);
-  const pos = new Map(); ordered.forEach((p, i) => pos.set(p, i));
+  const pos = new Map();
+  ordered.forEach((p, i) => pos.set(p, (rankPos && rankPos.has(p)) ? rankPos.get(p) : i));
   const courts = [];
   for(let i=0; i<ordered.length; i+=4) courts.push(ordered.slice(i, i+4));
   const span = four => {
@@ -1662,7 +1674,18 @@ function mexicanoGroupAntiRepeat(ordered, historyRounds){
     return s;
   };
   // «Плохость» четвёрки = повторы + штраф за ширину сверх 4 позиций.
-  const badness = four => cost(four) + MEX_SPAN_PENALTY * Math.max(0, span(four) - 4);
+  // Четвёрки прошлого тура: повторять их целиком нельзя.
+  const fourKey = four => [...four].sort().join("\u001F");
+  const prevFours = new Set();
+  if(Array.isArray(historyRounds) && historyRounds.length){
+    (historyRounds[historyRounds.length - 1].games || []).forEach(g => {
+      const f = [...(g.t1||[]), ...(g.t2||[])];
+      if(f.length === 4) prevFours.add(fourKey(f));
+    });
+  }
+  const isPrev = four => prevFours.has(fourKey(four));
+  const badness = four => cost(four) + MEX_SPAN_PENALTY * Math.max(0, span(four) - 4)
+                        + (isPrev(four) ? MEX_SAME_FOUR_PENALTY : 0);
   const PASSES = 12;
   for(let pass=0; pass<PASSES; pass++){
     let improved = false;
@@ -1670,9 +1693,17 @@ function mexicanoGroupAntiRepeat(ordered, historyRounds){
     for(let i=0;i<courts.length;i++)
       for(let j=i+1;j<courts.length;j++) pairs.push([i, j]);
     shuffle(pairs);
+    // Пары кортов с повторной четвёркой — первыми, пока соседи не потратили разброс.
+    if(prevFours.size){
+      const prio = pr => (isPrev(courts[pr[0]]) || isPrev(courts[pr[1]])) ? 1 : 0;
+      const keyed = pairs.map(pr => [prio(pr), pr]);
+      keyed.sort((x, y) => y[0] - x[0]);
+      keyed.forEach((k, idx) => { pairs[idx] = k[1]; });
+    }
     for(const [i, j] of pairs){
       const ci = courts[i], cj = courts[j];
       const base = badness(ci) + badness(cj);
+      const capI = Math.max(MEX_SPREAD, span(ci)), capJ = Math.max(MEX_SPREAD, span(cj));
       // Принимаем только обмены, которые реально снижают «плохость» (без пустого
       // перетасовывания). Среди равных по выигрышу — случайный выбор.
       let bestGain = 1e-9, bestRnd = -1, bestMove = null;
@@ -1680,7 +1711,7 @@ function mexicanoGroupAntiRepeat(ordered, historyRounds){
         for(let b=0;b<cj.length;b++){
           const ni = ci.slice(); const nj = cj.slice();
           ni[a] = cj[b]; nj[b] = ci[a];
-          if(span(ni) > MEX_SPREAD || span(nj) > MEX_SPREAD) continue;
+          if(span(ni) > capI || span(nj) > capJ) continue;
           const gain = base - (badness(ni) + badness(nj));
           if(gain > 1e-9){
             const rnd = Math.random();
@@ -1691,6 +1722,36 @@ function mexicanoGroupAntiRepeat(ordered, historyRounds){
       if(bestMove){ courts[i] = bestMove[0]; courts[j] = bestMove[1]; improved = true; }
     }
     if(!improved) break;
+  }
+  // «Спасательный» обмен: четвёрка всё ещё совпадает с четвёркой прошлого тура
+  // (потолок разброса не дал её развести). Меняем одного игрока с другим кортом так,
+  // чтобы превышение потолка было минимальным; среди равных — с меньшей «плохостью».
+  if(prevFours.size && courts.length > 1){
+    for(let i=0;i<courts.length;i++){
+      const ci = courts[i];
+      if(!isPrev(ci)) continue;
+      let best = null;
+      for(let j=0;j<courts.length;j++){
+        if(j === i) continue;
+        const cj = courts[j];
+        const capI = Math.max(MEX_SPREAD, span(ci)), capJ = Math.max(MEX_SPREAD, span(cj));
+        for(let a=0;a<ci.length;a++){
+          for(let b=0;b<cj.length;b++){
+            const ni = ci.slice(); const nj = cj.slice();
+            ni[a] = cj[b]; nj[b] = ci[a];
+            if(isPrev(ni) || isPrev(nj)) continue;
+            const over = Math.max(0, span(ni) - capI, span(nj) - capJ);
+            const bad = badness(ni) + badness(nj) - badness(cj);
+            const rnd = Math.random();
+            if(!best || over < best.over ||
+               (over === best.over && (bad < best.bad || (bad === best.bad && rnd > best.rnd)))){
+              best = { over, bad, rnd, j, ni, nj };
+            }
+          }
+        }
+      }
+      if(best){ courts[i] = best.ni; courts[best.j] = best.nj; }
+    }
   }
   return courts;
 }
@@ -1761,11 +1822,13 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound,
   const isFirstRound = (firstRound === undefined) ? (DB.rounds.length === 0) : !!firstRound;
 
   // Порядок игроков: случайный в первом туре, дальше по рейтингу (выше avgDiff — выше).
-  let ordered;
+  let ordered, rankPos = null;
   if(isFirstRound){
     ordered = shuffle([...playing]);       // первый тур — полностью случайно
   } else {
-    ordered = [...playing].sort((a,b) => {
+    // Ранжируем ВСЕХ игроков (включая отдыхающих): место в общем рейтинге нужно,
+    // чтобы разброс четвёрки считался в местах таблицы, а не среди играющих.
+    const ranked = [...uniq].sort((a,b) => {
       const ra = ratings.has(a) ? ratings.get(a).avgDiff : 0;
       const rb = ratings.has(b) ? ratings.get(b).avgDiff : 0;
       if(rb !== ra) return rb - ra;        // выше рейтинг — выше в списке
@@ -1776,6 +1839,8 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound,
       if(wb !== wa) return wb - wa;        // больше побед — выше
       return Math.random() - 0.5;          // полностью равные — случайно
     });
+    rankPos = new Map(); ranked.forEach((p, i) => rankPos.set(p, i));
+    ordered = ranked.filter(p => !resting.has(p));
   }
 
   // Разбиение на четвёрки.
@@ -1788,7 +1853,7 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound,
     courts = [];
     for(let i=0; i<ordered.length; i+=4) courts.push(ordered.slice(i, i+4));
   } else {
-    courts = mexicanoGroupAntiRepeat(ordered, historyRounds);
+    courts = mexicanoGroupAntiRepeat(ordered, historyRounds, rankPos);
   }
 
   // Распасовка внутри четвёрки: сильнейший+слабейший против двух средних,
