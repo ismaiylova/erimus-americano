@@ -145,7 +145,8 @@
   body.is-finished .score input{background:#f2ede4;color:var(--navy-soft);cursor:not-allowed}
   body.is-finished .round-del,body.is-finished .sub-round-del,
   body.is-finished #addBtn,body.is-finished #resetBtn,
-  body.is-finished #fpAddBtn,body.is-finished .fp-chip button,
+  body.is-finished #fpAddBtn,body.is-finished #fpClearBtn,body.is-finished .fp-chip button,
+  body.is-finished [data-abcdef-fp-add],body.is-finished [data-abcdef-fp-clear],body.is-finished [data-abcdef-fp-remove],
   body.is-finished .rest-chip,body.is-finished #clearScores,
   body.is-finished #bottomBar,
   body.is-finished [data-abcdef-add],
@@ -702,6 +703,7 @@
         <span class="plus">+</span>
         <select id="fp2"><option value="">— игрок —</option></select>
         <button class="btn ghost small" id="fpAddBtn" type="button">＋ Добавить пару</button>
+        <button class="btn danger small" id="fpClearBtn" type="button" style="display:none">✕ Сбросить фиксацию пар</button>
       </div>
       <div id="fpList" class="fp-list"></div>
     </div>
@@ -906,6 +908,7 @@ function migrateState(d){
   if(d && typeof d.listF !== "string") d.listF = "";
   // solo mode + best-of + auto-repeat added later
   if(d && typeof d.listS !== "string") d.listS = "";
+  if(d && !(typeof d.courts === "number" && d.courts >= 1 && d.courts <= 4)) d.courts = 2;
   if(d && !(d.bestOf === 1 || d.bestOf === 2)) d.bestOf = 1;
   if(d && !(typeof d.cycle === "number" && d.cycle >= 1)) d.cycle = 1;
   if(d && !Array.isArray(d.fixedPairsHistory)) d.fixedPairsHistory = [];
@@ -943,6 +946,9 @@ function migrateState(d){
         Object.keys(blank[k]).forEach(field => {
           if(d.groupsABCDEF[k][field] === undefined) d.groupsABCDEF[k][field] = blank[k][field];
         });
+        if(!(typeof d.groupsABCDEF[k].courts === "number" && d.groupsABCDEF[k].courts >= 1 && d.groupsABCDEF[k].courts <= 4)){
+          d.groupsABCDEF[k].courts = 2;
+        }
         // «Готовые пары» удалён — старые группы открываем как «Один список»
         if(d.groupsABCDEF[k].mode === "pairs") d.groupsABCDEF[k].mode = "single";
       }
@@ -1130,7 +1136,7 @@ async function openTournament(id, silent){
     rememberRecent(id, DB.name);
     saveLocal();
     applyDBToInputs(); renderAll();
-    await pushCloud();
+    if(!remote) await pushCloud();
     setCloudDot("on","Открыт: "+(DB.name?DB.name:("турнир "+id)));
   }catch(e){
     setCloudDot("err","Не удалось открыть турнир (проверьте код и настройку)");
@@ -1506,85 +1512,328 @@ function* combinations(arr, k){
   }
 }
 
-/* Build a round with optional "locked" (fixed) pairs.
-   Locked pairs always play together; they don't go into usedSet
-   (they're meant to repeat). Random pool fills the remaining slots.
-   All pairs (locked + random) are then shuffled to randomize who
-   plays on which court and against whom.
+function binom(n, k){
+  if(k < 0 || k > n) return 0;
+  if(k === 0 || k === n) return 1;
+  k = Math.min(k, n - k);
+  let res = 1;
+  for(let i = 1; i <= k; i++) res = res * (n - k + i) / i;
+  return res;
+}
 
-   Алгоритм выбора отдыхающих: перебираем ВСЕ возможные комбинации resters,
-   отсортированные по сумме playCount (по убыванию — отдыхают те, кто играл
-   больше). Это гарантирует нахождение валидного тура, если он существует,
-   и одновременно сохраняет балансировку нагрузки. */
-function buildSingleRound(players, lockedPairs, usedSet, playCount, courts){
-  const K = lockedPairs.length;
-  if(K > courts*2) return null; // не хватает кортов для всех фиксированных пар
+function cappedCombinations(arr, k, scoreFn, limit = 600){
+  if(k === 0) return [[]];
+  if(k > arr.length) return [];
+  if(binom(arr.length, k) <= limit){
+    return Array.from(combinations(arr, k));
+  }
+  const ordered = arr
+    .map(item => ({ item, s: (scoreFn ? scoreFn(item) : 0) + Math.random() * 0.5 }))
+    .sort((a, b) => b.s - a.s)
+    .map(x => x.item);
+  const out = [];
+  for(const c of combinations(ordered, k)){
+    out.push(c);
+    if(out.length >= limit) break;
+  }
+  return out;
+}
+
+/* Возвращает все способы разбить массив пар allPairs на матчи без повторов из forbiddenMatchSet */
+function allZeroRepeatPairMatchups(allPairs, forbiddenMatchSet){
+  const out = [];
+  const cur = [];
+  function bt(remIdx){
+    if(remIdx.length === 0){
+      out.push(cur.map(m => [m[0], m[1]]));
+      return;
+    }
+    const a = remIdx[0];
+    const rest = remIdx.slice(1);
+    for(const k of shuffle(rest.map((_, i) => i))){
+      const b = rest[k];
+      if(forbiddenMatchSet && forbiddenMatchSet.has(mkey(allPairs[a], allPairs[b]))) continue;
+      cur.push([a, b]);
+      bt(rest.filter((_, i) => i !== k));
+      cur.pop();
+      if(out.length >= 64) return;
+    }
+  }
+  bt(allPairs.map((_, i) => i));
+  return shuffle(out);
+}
+
+/* Проверяет на depth шагов вперёд, что для фиксированного пула пар poolPairs
+   при справедливой очереди отдыха (по playCount) можно продолжить цикл без повторов матчей */
+function canFixedPoolContinue(poolPairs, games, usedMatchSet, playCount, depth){
+  if(depth <= 0) return true;
+  const P = poolPairs.length;
+  const pairsNeeded = games * 2;
+  const restN = P - pairsNeeded;
+  if(restN < 0) return false;
+  const idxArr = poolPairs.map((_, i) => i);
+  const restSets = restN === 0
+    ? [[]]
+    : cappedCombinations(idxArr, restN, i => (playCount[poolPairs[i][0]]||0) + (playCount[poolPairs[i][1]]||0), 60);
+  if(!restSets.length) return false;
+  let maxScore = -Infinity;
+  const scored = restSets.map(rs => {
+    const sc = rs.reduce((s, i) => s + (playCount[poolPairs[i][0]]||0) + (playCount[poolPairs[i][1]]||0), 0);
+    if(sc > maxScore) maxScore = sc;
+    return { rs, sc };
+  });
+  const topSets = shuffle(scored.filter(x => x.sc === maxScore));
+  for(const { rs } of topSets.slice(0, 20)){
+    const rSet = new Set(rs);
+    const activePairs = poolPairs.filter((_, i) => !rSet.has(i));
+    const matchings = allZeroRepeatPairMatchups(activePairs, usedMatchSet);
+    for(const m of matchings.slice(0, 16)){
+      if(depth === 1) return true;
+      const nextUsed = new Set(usedMatchSet);
+      m.forEach(([i1, i2]) => nextUsed.add(mkey(activePairs[i1], activePairs[i2])));
+      const nextPC = Object.assign({}, playCount);
+      activePairs.forEach(([a, b]) => {
+        nextPC[a] = (nextPC[a]||0) + 1;
+        nextPC[b] = (nextPC[b]||0) + 1;
+      });
+      if(canFixedPoolContinue(poolPairs, games, nextUsed, nextPC, depth - 1)) return true;
+    }
+  }
+  return false;
+}
+
+/* Подбирает разбиение активных пар allPairs на матчи (пара против пары) с минимумом повторов в usedMatchSet */
+function findBestPairMatchups(allPairs, usedMatchSet){
+  let best = null;
+  let bestRepeats = Infinity;
+  const cur = [];
+  function bt(remIdx, repeats){
+    if(repeats >= bestRepeats) return;
+    if(remIdx.length === 0){
+      best = cur.map(m => [m[0], m[1]]);
+      bestRepeats = repeats;
+      return;
+    }
+    const a = remIdx[0];
+    const rest = remIdx.slice(1);
+    for(const k of shuffle(rest.map((_, i) => i))){
+      const b = rest[k];
+      const rep = (usedMatchSet && usedMatchSet.has(mkey(allPairs[a], allPairs[b]))) ? 1 : 0;
+      cur.push([a, b]);
+      bt(rest.filter((_, i) => i !== k), repeats + rep);
+      cur.pop();
+      if(bestRepeats === 0) return;
+    }
+  }
+  bt(allPairs.map((_, i) => i), 0);
+  if(best) shuffle(best);
+  return { matchups: best, repeats: bestRepeats };
+}
+
+/* Возвращает множество ключей матчей mkey из последнего сыгранного тура (чтобы не повторять матч два тура подряд на стыке кругов) */
+function getLastRoundMatchSet(roundsArr){
+  const s = new Set();
+  if(!Array.isArray(roundsArr) || !roundsArr.length) return s;
+  const last = roundsArr[roundsArr.length - 1];
+  (last.games || []).forEach(g => {
+    if(Array.isArray(g.t1) && g.t1.length === 2 && Array.isArray(g.t2) && g.t2.length === 2){
+      s.add(mkey(g.t1, g.t2));
+    }
+  });
+  return s;
+}
+
+/* Build a round with optional "locked" (fixed) pairs.
+   Фиксированные пары всегда играют или отдыхают вместе как единая пара.
+   Количество фиксированных пар не ограничено числом кортов: можно разбить на
+   фиксированные пары весь список участников, и тогда лишние пары будут по очереди
+   равномерно отдыхать (по playCount), а активные пары будут получать случайных
+   соперников из других пар (без повторов матчей внутри круга). */
+function buildSingleRound(players, lockedPairs, usedSet, playCount, courts, usedMatchSet, prevRoundMatchSet){
+  const playerSet = new Set(players);
+  const validLocked = (lockedPairs || []).filter(([a,b]) => playerSet.has(a) && playerSet.has(b));
+  const K = validLocked.length;
 
   const lockedSet = new Set();
-  for(const [a,b] of lockedPairs){
-    if(!players.includes(a) || !players.includes(b)) return null;
+  for(const [a,b] of validLocked){
     lockedSet.add(a); lockedSet.add(b);
   }
   const randomPool = players.filter(p => !lockedSet.has(p));
   const Rn = randomPool.length;
 
-  // games count: each game = 2 pairs = 4 seats. seats >= 2K (locked) and (seats - 2K) is even & ≤ Rn
-  const maxGames = Math.min(courts, Math.floor((2*K + Rn)/4));
-  const minGames = Math.ceil(K/2); // нужно хотя бы столько кортов, чтобы все locked играли
-  if(maxGames < minGames || maxGames < 1) return null;
+  const totalPossiblePairs = K + Math.floor(Rn / 2);
+  const maxGames = Math.min(courts, Math.floor(totalPossiblePairs / 2));
+  if(maxGames < 1) return null;
 
-  const lockedKeySet = new Set(lockedPairs.map(p => pkey(p[0],p[1])));
+  const lockedKeySet = new Set(validLocked.map(p => pkey(p[0],p[1])));
+  // Если свободных игроков 0 или 2, то состав всех возможных пар фиксирован (2 свободных могут играть только друг с другом).
+  const fixedPoolMode = (Rn === 0) || (Rn === 2 && K > 0);
+  const fixedPoolPairs = fixedPoolMode
+    ? (Rn === 2 ? [...validLocked, [randomPool[0], randomPool[1]]] : [...validLocked])
+    : null;
 
-  // try games from max down to min — пытаемся вместить максимум
-  for(let games = maxGames; games >= Math.max(1, minGames); games--){
-    const seats = games*4;
-    const randomSeats = seats - 2*K;
-    if(randomSeats < 0 || randomSeats > Rn) continue;
-    const restN = Rn - randomSeats;
+  // try games from max down to 1 — пытаемся вместить максимум кортов
+  for(let games = maxGames; games >= 1; games--){
+    const pairsNeeded = games * 2;
+    const minKActive = Math.max(0, pairsNeeded - Math.floor(Rn / 2));
+    const maxKActive = Math.min(K, pairsNeeded);
+    if(maxKActive < minKActive) continue;
 
-    // Перебираем все возможные множества отдыхающих, упорядоченные по предпочтению.
-    // Предпочтение = сумма playCount отдыхающих (больше = лучше — отдыхают те, кто играл больше).
-    // Случайный шум разрывает ничьи, чтобы при равных counts выбор каждый раз новый.
-    let resterSets;
-    if(restN === 0){
-      resterSets = [[]];
-    } else {
-      resterSets = Array.from(combinations(randomPool, restN));
-      const scored = resterSets.map(s => ({
-        rest: s,
-        score: s.reduce((sum,p) => sum + (playCount[p]||0), 0) + Math.random()*0.5
-      }));
-      scored.sort((a,b) => b.score - a.score);
-      resterSets = scored.map(x => x.rest);
-    }
+    const candidates = [];
+    const lockedIdx = validLocked.map((_, i) => i);
+    for(let kActive = maxKActive; kActive >= minKActive; kActive--){
+      const restLockedN = K - kActive;
+      const rPairs = pairsNeeded - kActive;
+      const restRandomN = Rn - 2 * rPairs;
+      if(restRandomN < 0) continue;
 
-    for(const restList of resterSets){
-      const restSet = new Set(restList);
-      const active = shuffle(randomPool.filter(p => !restSet.has(p)));
-      const pairs = randomSeats === 0 ? [] : tryPairUp(active, usedSet);
-      if(pairs){
-        // объединяем locked + random, перемешиваем (рандомная расстановка по кортам/матчам)
-        const allPairs = shuffle([
-          ...lockedPairs.map(p => [p[0], p[1]]),
-          ...pairs
-        ]);
-        const gamesArr = [];
-        for(let i=0; i<allPairs.length; i+=2){
-          const t1=allPairs[i], t2=allPairs[i+1];
-          gamesArr.push({
-            court: gamesArr.length+1,
-            t1, t2,
-            t1Fixed: lockedKeySet.has(pkey(t1[0],t1[1])),
-            t2Fixed: lockedKeySet.has(pkey(t2[0],t2[1])),
-            sets: mkEmptySets()
+      const restLockedSets = restLockedN === 0
+        ? [[]]
+        : cappedCombinations(lockedIdx, restLockedN, i => (playCount[validLocked[i][0]]||0) + (playCount[validLocked[i][1]]||0));
+      const restRandomSets = restRandomN === 0
+        ? [[]]
+        : cappedCombinations(randomPool, restRandomN, p => (playCount[p]||0));
+
+      for(const rlIdx of restLockedSets){
+        const rlPlayerList = rlIdx.flatMap(i => validLocked[i]);
+        const rlScore = rlPlayerList.reduce((s, p) => s + (playCount[p]||0), 0);
+        for(const rrList of restRandomSets){
+          const rrScore = rrList.reduce((s, p) => s + (playCount[p]||0), 0);
+          const baseScore = rlScore + rrScore;
+          candidates.push({
+            kActive,
+            rPairs,
+            rlIdx,
+            rrList,
+            restPlayers: [...rlPlayerList, ...rrList],
+            baseScore,
+            sortScore: baseScore + Math.random() * 0.5
           });
         }
-        return {
-          games: gamesArr,
-          active: [...lockedSet, ...active],
-          resting: [...restList]
-        };
       }
+    }
+    if(!candidates.length) continue;
+
+    candidates.sort((a, b) => b.sortScore - a.sortScore);
+    const maxBaseScore = candidates[0].baseScore;
+
+    const makeRoundObj = (cand, randomPairs, matchups, allPairs) => {
+      const gamesArr = matchups.map(([i1, i2], gi) => {
+        const t1 = allPairs[i1], t2 = allPairs[i2];
+        return {
+          court: gi + 1,
+          t1, t2,
+          t1Fixed: lockedKeySet.has(pkey(t1[0],t1[1])),
+          t2Fixed: lockedKeySet.has(pkey(t2[0],t2[1])),
+          sets: mkEmptySets()
+        };
+      });
+      const restSet = new Set(cand.restPlayers);
+      const activePlayers = players.filter(p => !restSet.has(p));
+      return {
+        games: gamesArr,
+        active: activePlayers,
+        resting: [...cand.restPlayers]
+      };
+    };
+
+    const topCandidates = candidates.filter(c => c.baseScore === maxBaseScore);
+
+    // Если все пары фиксированные (или 4 фикс + 2 свободных), подбираем строго без повторов матчей внутри круга
+    // и с проверкой на 1–2 шага вперёд (чтобы не попадать в «треугольный тупик» на 4-м туре из 5).
+    if(fixedPoolMode){
+      const matchAvoidSets = (usedMatchSet && usedMatchSet.size === 0 && prevRoundMatchSet && prevRoundMatchSet.size > 0)
+        ? [new Set([...usedMatchSet, ...prevRoundMatchSet]), usedMatchSet]
+        : [usedMatchSet || new Set()];
+
+      for(const effMatchSet of matchAvoidSets){
+        for(const depth of [2, 1, 0]){
+          for(const cand of topCandidates){
+            const rlSet = new Set(cand.rlIdx);
+            const rrSet = new Set(cand.rrList);
+            const activeLocked = validLocked.filter((_, i) => !rlSet.has(i));
+            const activeRandom = shuffle(randomPool.filter(p => !rrSet.has(p)));
+            const randomPairs = cand.rPairs === 0 ? [] : tryPairUp(activeRandom, new Set());
+            if(!randomPairs) continue;
+
+            const allPairs = shuffle([
+              ...activeLocked.map(p => [p[0], p[1]]),
+              ...randomPairs
+            ]);
+            const zeroMatchings = allZeroRepeatPairMatchups(allPairs, effMatchSet);
+            for(const matchups of zeroMatchings){
+              if(depth > 0){
+                const nextUsed = new Set(usedMatchSet || []);
+                matchups.forEach(([i1, i2]) => nextUsed.add(mkey(allPairs[i1], allPairs[i2])));
+                const nextPC = Object.assign({}, playCount);
+                allPairs.forEach(([a, b]) => {
+                  nextPC[a] = (nextPC[a]||0) + 1;
+                  nextPC[b] = (nextPC[b]||0) + 1;
+                });
+                if(!canFixedPoolContinue(fixedPoolPairs, games, nextUsed, nextPC, depth)) continue;
+              }
+              return makeRoundObj(cand, randomPairs, matchups.map(m => [m[0], m[1]]), allPairs);
+            }
+          }
+        }
+      }
+      // В режиме фиксированных пар внутри текущего круга повторы матчей не допускаются —
+      // возвращаем null, чтобы начался следующий круг (Круг 2, Круг 3 и т.д.).
+      continue;
+    }
+
+    const tryCandidatesList = (candList, pairUsedSet) => {
+      let bestFallback = null;
+      for(const cand of candList){
+        const rlSet = new Set(cand.rlIdx);
+        const rrSet = new Set(cand.rrList);
+        const activeLocked = validLocked.filter((_, i) => !rlSet.has(i));
+        const activeRandom = shuffle(randomPool.filter(p => !rrSet.has(p)));
+        const randomPairs = cand.rPairs === 0 ? [] : tryPairUp(activeRandom, pairUsedSet);
+        if(!randomPairs) continue;
+
+        const allPairs = shuffle([
+          ...activeLocked.map(p => [p[0], p[1]]),
+          ...randomPairs
+        ]);
+        const { matchups, repeats } = findBestPairMatchups(allPairs, usedMatchSet);
+        if(!matchups) continue;
+
+        if(repeats === 0){
+          return { exact: makeRoundObj(cand, randomPairs, matchups, allPairs), fallback: null };
+        }
+        // Если в этом кандидате играют только фиксированные пары (rPairs === 0), повтор матча недопустим
+        if(cand.rPairs > 0 && (!bestFallback || repeats < bestFallback.repeats)){
+          bestFallback = { cand, randomPairs, matchups, allPairs, repeats };
+        }
+      }
+      return { exact: null, fallback: bestFallback };
+    };
+
+    // 1) Пробуем самых справедливых по очереди отдыха (baseScore === maxBaseScore)
+    let resTop = tryCandidatesList(topCandidates, usedSet);
+    if(resTop.exact) return resTop.exact;
+
+    // Если есть фиксированные пары (K > 0) и небольшой пул свободных игроков уже исчерпал
+    // свои внутренние сочетания в usedSet, не заставляем свободных игроков вечно отдыхать:
+    // разрешаем им пересобрать пары между собой в рамках своей очереди игры.
+    if(!resTop.fallback && K > 0 && Rn > 0){
+      resTop = tryCandidatesList(topCandidates, new Set());
+      if(resTop.exact) return resTop.exact;
+    }
+
+    if(resTop.fallback){
+      const fb = resTop.fallback;
+      return makeRoundObj(fb.cand, fb.randomPairs, fb.matchups, fb.allPairs);
+    }
+
+    // 2) Если из-за usedSet в topCandidates не сложились пары — пробуем остальные
+    const restCandidates = candidates.filter(c => c.baseScore < maxBaseScore);
+    const resRest = tryCandidatesList(restCandidates, usedSet);
+    if(resRest.exact) return resRest.exact;
+    if(resRest.fallback){
+      const fb = resRest.fallback;
+      return makeRoundObj(fb.cand, fb.randomPairs, fb.matchups, fb.allPairs);
     }
   }
   return null;
@@ -1796,19 +2045,29 @@ function buildMexicanoRound(players, forcedRest, ratings, restCount, firstRound,
 
   const resting = new Set(forced);
 
-  // Добор отдыхающих до restTotal: равномерно — среди тех, кто отдыхал меньше всех.
+  // Добор отдыхающих до restTotal: равномерно — отдыхают те, кто больше всех играл
+  // (и меньше всех отдыхал). Опоздавшие игроки, добавленные в середине турнира,
+  // имеют меньше сыгранных туров, поэтому сразу идут играть, а не в отдых.
   if(resting.size < restTotal){
     const candidates = uniq.filter(p => !resting.has(p));
     // Кто отдыхал в прошлом туре — в конец очереди на отдых («кулдаун»), чтобы никто
-    // не сидел два тура подряд; среди остальных — по суммарному числу отдыхов (справедливо).
+    // не сидел два тура подряд.
     const lastRest = new Set(
       (Array.isArray(historyRounds) && historyRounds.length)
         ? (historyRounds[historyRounds.length - 1].resting || [])
         : []
     );
+    const playedInHistory = {};
+    if(Array.isArray(historyRounds)){
+      historyRounds.forEach(rd => {
+        (rd.active || []).forEach(p => { playedInHistory[p] = (playedInHistory[p] || 0) + 1; });
+      });
+    }
     candidates.sort((a,b) =>
       ((lastRest.has(a)?1:0) - (lastRest.has(b)?1:0)) ||
-      ((restCount[a]||0) - (restCount[b]||0)) || (Math.random() - 0.5)
+      ((playedInHistory[b]||0) - (playedInHistory[a]||0)) ||
+      ((restCount[a]||0) - (restCount[b]||0)) ||
+      (Math.random() - 0.5)
     );
     for(const p of candidates){
       if(resting.size >= restTotal) break;
@@ -1892,82 +2151,190 @@ function matchCross(ms, ws, usedSet){
   return bt(0,ws.slice())?res:null;
 }
 
-function buildDoubleRound(L1, L2, lockedPairs, usedSet, playCount, courts){
-  const K = lockedPairs.length;
-  if(K > courts*2) return null;
-
+function buildDoubleRound(L1, L2, lockedPairs, usedSet, playCount, courts, usedMatchSet, prevRoundMatchSet){
   const L1Set = new Set(L1), L2Set = new Set(L2);
   const lockedFromL1 = new Set(), lockedFromL2 = new Set();
-  for(const [a,b] of lockedPairs){
-    if(!L1Set.has(a) || !L2Set.has(b)) return null;
-    if(lockedFromL1.has(a) || lockedFromL2.has(b)) return null;
+  const validLocked = [];
+  for(const [a,b] of (lockedPairs || [])){
+    if(!L1Set.has(a) || !L2Set.has(b)) continue;
+    if(lockedFromL1.has(a) || lockedFromL2.has(b)) continue;
     lockedFromL1.add(a); lockedFromL2.add(b);
+    validLocked.push([a,b]);
   }
+  const K = validLocked.length;
   const remL1 = L1.filter(p => !lockedFromL1.has(p));
   const remL2 = L2.filter(p => !lockedFromL2.has(p));
 
-  // максимально возможное число случайных кросс-пар
   const maxR = Math.min(remL1.length, remL2.length);
-  let r = Math.min(maxR, courts*2 - K);
-  if((K + r) % 2 !== 0) r--;
-  if(r < 0) return null;
+  const totalPossiblePairs = K + maxR;
+  const maxGames = Math.min(courts, Math.floor(totalPossiblePairs / 2));
+  if(maxGames < 1) return null;
 
-  const minGames = Math.ceil(K/2);
-  const lockedKeySet = new Set(lockedPairs.map(p => dkey(p[0],p[1])));
+  const lockedKeySet = new Set(validLocked.map(p => dkey(p[0],p[1])));
+  const lockedIdx = validLocked.map((_, i) => i);
+  const fixedPoolMode = (remL1.length === 0 && remL2.length === 0) || (remL1.length === 1 && remL2.length === 1 && K > 0);
+  const fixedPoolPairs = fixedPoolMode
+    ? (remL1.length === 1 ? [...validLocked, [remL1[0], remL2[0]]] : [...validLocked])
+    : null;
 
-  // пробуем уменьшать r, если не получается собрать
-  for(; r >= 0 && (K + r) % 2 === 0; r -= 2){
-    const games = (K + r) / 2;
-    if(games < minGames || games < 1) break;
+  for(let games = maxGames; games >= 1; games--){
+    const pairsNeeded = games * 2;
+    const minKActive = Math.max(0, pairsNeeded - maxR);
+    const maxKActive = Math.min(K, pairsNeeded);
+    if(maxKActive < minKActive) continue;
 
-    // перебираем все комбинации (useM из remL1) × (useW из remL2)
-    // упорядоченно по предпочтению: отдыхающие должны быть теми, кто больше играл
-    const useMList = Array.from(combinations(remL1, r));
-    const useWList = Array.from(combinations(remL2, r));
+    const candidates = [];
+    for(let kActive = maxKActive; kActive >= minKActive; kActive--){
+      const restLockedN = K - kActive;
+      const rPairs = pairsNeeded - kActive;
+      if(rPairs < 0 || rPairs > maxR) continue;
 
-    const combos = [];
-    for(const useM of useMList){
-      const setM = new Set(useM);
-      // сумма playCount отдыхающих из L1
-      let restScoreM = 0;
-      for(const p of remL1) if(!setM.has(p)) restScoreM += (playCount[p]||0);
-      for(const useW of useWList){
-        const setW = new Set(useW);
-        let restScoreW = 0;
-        for(const p of remL2) if(!setW.has(p)) restScoreW += (playCount[p]||0);
-        combos.push({
-          useM, useW,
-          score: restScoreM + restScoreW + Math.random()*0.5
-        });
+      const restLockedSets = restLockedN === 0
+        ? [[]]
+        : cappedCombinations(lockedIdx, restLockedN, i => (playCount[validLocked[i][0]]||0) + (playCount[validLocked[i][1]]||0), 200);
+      const useMList = rPairs === 0
+        ? [[]]
+        : cappedCombinations(remL1, rPairs, p => -(playCount[p]||0), 200);
+      const useWList = rPairs === 0
+        ? [[]]
+        : cappedCombinations(remL2, rPairs, p => -(playCount[p]||0), 200);
+
+      for(const rlIdx of restLockedSets){
+        const rlPlayers = rlIdx.flatMap(i => validLocked[i]);
+        const rlScore = rlPlayers.reduce((s, p) => s + (playCount[p]||0), 0);
+        for(const useM of useMList){
+          const setM = new Set(useM);
+          let restScoreM = 0;
+          for(const p of remL1) if(!setM.has(p)) restScoreM += (playCount[p]||0);
+          for(const useW of useWList){
+            const setW = new Set(useW);
+            let restScoreW = 0;
+            for(const p of remL2) if(!setW.has(p)) restScoreW += (playCount[p]||0);
+            const baseScore = rlScore + restScoreM + restScoreW;
+            candidates.push({
+              kActive,
+              rPairs,
+              rlIdx,
+              useM,
+              useW,
+              baseScore,
+              sortScore: baseScore + Math.random() * 0.5
+            });
+          }
+        }
       }
     }
-    combos.sort((a,b) => b.score - a.score);
+    if(!candidates.length) continue;
 
-    for(const c of combos){
-      const useM = shuffle(c.useM.slice());
-      const useW = shuffle(c.useW.slice());
-      const pairs = r === 0 ? [] : matchCross(useM, useW, usedSet);
-      if(pairs){
-        const allPairs = shuffle([
-          ...lockedPairs.map(p => [p[0], p[1]]),
-          ...pairs
-        ]);
-        const gamesArr = [];
-        for(let i=0; i<allPairs.length; i+=2){
-          const t1=allPairs[i], t2=allPairs[i+1];
-          gamesArr.push({
-            court: gamesArr.length+1,
-            t1, t2,
-            t1Fixed: lockedKeySet.has(dkey(t1[0],t1[1])),
-            t2Fixed: lockedKeySet.has(dkey(t2[0],t2[1])),
-            sets: mkEmptySets()
-          });
+    candidates.sort((a, b) => b.sortScore - a.sortScore);
+    const maxBaseScore = candidates[0].baseScore;
+
+    const makeRoundObj = (cand, randomPairs, matchups, allPairs) => {
+      const gamesArr = matchups.map(([i1, i2], gi) => {
+        const t1 = allPairs[i1], t2 = allPairs[i2];
+        return {
+          court: gi + 1,
+          t1, t2,
+          t1Fixed: lockedKeySet.has(dkey(t1[0],t1[1])),
+          t2Fixed: lockedKeySet.has(dkey(t2[0],t2[1])),
+          sets: mkEmptySets()
+        };
+      });
+      const rlSet = new Set(cand.rlIdx);
+      const activeLockedPlayers = validLocked.filter((_, i) => !rlSet.has(i)).flat();
+      const active = [...activeLockedPlayers, ...cand.useM, ...cand.useW];
+      const activeSet = new Set(active);
+      const resting = [...L1, ...L2].filter(p => !activeSet.has(p));
+      return { games: gamesArr, active, resting };
+    };
+
+    const topCandidates = candidates.filter(c => c.baseScore === maxBaseScore);
+
+    if(fixedPoolMode){
+      const matchAvoidSets = (usedMatchSet && usedMatchSet.size === 0 && prevRoundMatchSet && prevRoundMatchSet.size > 0)
+        ? [new Set([...usedMatchSet, ...prevRoundMatchSet]), usedMatchSet]
+        : [usedMatchSet || new Set()];
+
+      for(const effMatchSet of matchAvoidSets){
+        for(const depth of [2, 1, 0]){
+          for(const cand of topCandidates){
+            const rlSet = new Set(cand.rlIdx);
+            const activeLocked = validLocked.filter((_, i) => !rlSet.has(i));
+            const useM = shuffle(cand.useM.slice());
+            const useW = shuffle(cand.useW.slice());
+            const randomPairs = cand.rPairs === 0 ? [] : matchCross(useM, useW, new Set());
+            if(!randomPairs) continue;
+
+            const allPairs = shuffle([
+              ...activeLocked.map(p => [p[0], p[1]]),
+              ...randomPairs
+            ]);
+            const zeroMatchings = allZeroRepeatPairMatchups(allPairs, effMatchSet);
+            for(const matchups of zeroMatchings){
+              if(depth > 0){
+                const nextUsed = new Set(usedMatchSet || []);
+                matchups.forEach(([i1, i2]) => nextUsed.add(mkey(allPairs[i1], allPairs[i2])));
+                const nextPC = Object.assign({}, playCount);
+                allPairs.forEach(([a, b]) => {
+                  nextPC[a] = (nextPC[a]||0) + 1;
+                  nextPC[b] = (nextPC[b]||0) + 1;
+                });
+                if(!canFixedPoolContinue(fixedPoolPairs, games, nextUsed, nextPC, depth)) continue;
+              }
+              return makeRoundObj(cand, randomPairs, matchups.map(m => [m[0], m[1]]), allPairs);
+            }
+          }
         }
-        const active = [...lockedFromL1, ...lockedFromL2, ...useM, ...useW];
-        const activeSet = new Set(active);
-        const resting = [...L1, ...L2].filter(p => !activeSet.has(p));
-        return { games: gamesArr, active, resting };
       }
+      continue;
+    }
+
+    const tryCandidatesList = (candList, pairUsedSet) => {
+      let bestFallback = null;
+      for(const cand of candList){
+        const rlSet = new Set(cand.rlIdx);
+        const activeLocked = validLocked.filter((_, i) => !rlSet.has(i));
+        const useM = shuffle(cand.useM.slice());
+        const useW = shuffle(cand.useW.slice());
+        const randomPairs = cand.rPairs === 0 ? [] : matchCross(useM, useW, pairUsedSet);
+        if(!randomPairs) continue;
+
+        const allPairs = shuffle([
+          ...activeLocked.map(p => [p[0], p[1]]),
+          ...randomPairs
+        ]);
+        const { matchups, repeats } = findBestPairMatchups(allPairs, usedMatchSet);
+        if(!matchups) continue;
+
+        if(repeats === 0){
+          return { exact: makeRoundObj(cand, randomPairs, matchups, allPairs), fallback: null };
+        }
+        if(cand.rPairs > 0 && (!bestFallback || repeats < bestFallback.repeats)){
+          bestFallback = { cand, randomPairs, matchups, allPairs, repeats };
+        }
+      }
+      return { exact: null, fallback: bestFallback };
+    };
+
+    let resTop = tryCandidatesList(topCandidates, usedSet);
+    if(resTop.exact) return resTop.exact;
+
+    if(!resTop.fallback && K > 0 && maxR > 0){
+      resTop = tryCandidatesList(topCandidates, new Set());
+      if(resTop.exact) return resTop.exact;
+    }
+
+    if(resTop.fallback){
+      const fb = resTop.fallback;
+      return makeRoundObj(fb.cand, fb.randomPairs, fb.matchups, fb.allPairs);
+    }
+
+    const restCandidates = candidates.filter(c => c.baseScore < maxBaseScore);
+    const resRest = tryCandidatesList(restCandidates, usedSet);
+    if(resRest.exact) return resRest.exact;
+    if(resRest.fallback){
+      const fb = resRest.fallback;
+      return makeRoundObj(fb.cand, fb.randomPairs, fb.matchups, fb.allPairs);
     }
   }
   return null;
@@ -2050,10 +2417,10 @@ function buildPairsRound(pairs, usedMatchSet, playCount, courts){
    Настоящее множество сыгранных пар (без служебных R×R запретов) отслеживаем
    отдельно и сохраняем в DB.usedPairs — это позволяет корректно пересчитывать
    ограничения, если пользователь позже поменяет состав списков. */
-function buildRestrictedRound(listR, listF, constrainedSet, playCount, courts){
+function buildRestrictedRound(listR, listF, constrainedSet, playCount, courts, usedMatchSet){
   const players = [...listR, ...listF];
   // Никаких locked pairs — партнёров тасуем случайно, как в single-режиме.
-  return buildSingleRound(players, [], constrainedSet, playCount, courts);
+  return buildSingleRound(players, [], constrainedSet, playCount, courts, usedMatchSet);
 }
 
 
@@ -2076,9 +2443,13 @@ function recomputeMainState(){
   const umSet = new Set();
   DB.playCount = {};
   DB.restCount = {};
+  const maxCyc = DB.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
+  DB.cycle = maxCyc;
   DB.rounds.forEach(rd => {
     (rd.active||[]).forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
     (rd.resting||[]).forEach(p => DB.restCount[p] = (DB.restCount[p]||0) + 1);
+    // usedPairs и usedMatchups относятся только к текущему (последнему) кругу
+    if((rd.cycle||1) !== maxCyc) return;
     (rd.games||[]).forEach(g => {
       const t1 = g.t1||[], t2 = g.t2||[];
       if(DB.mode==="solo" && t1.length===1 && t2.length===1){
@@ -2096,8 +2467,6 @@ function recomputeMainState(){
   });
   DB.usedPairs = [...upSet];
   DB.usedMatchups = [...umSet];
-  const maxCyc = DB.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
-  DB.cycle = maxCyc;
 }
 
 function deleteRound(index){
@@ -2149,7 +2518,11 @@ function renderRestPicker(){
     btn.onclick = () => {
       const name = btn.dataset.restName;
       const s = new Set(DB.forcedRest||[]);
-      if(s.has(name)) s.delete(name); else s.add(name);
+      const willRest = !s.has(name);
+      // Если игрок состоит в фиксированной паре — переключаем отдых сразу для обоих партнёров
+      const fixedPartner = (getValidFixedPairs()||[]).find(([a,b]) => a===name || b===name);
+      const targets = fixedPartner ? fixedPartner : [name];
+      targets.forEach(t => { if(willRest) s.add(t); else s.delete(t); });
       DB.forcedRest = [...s];
       saveDB();
       renderRestPicker();
@@ -2229,20 +2602,26 @@ function addRounds(count, toMax){
       const forced = new Set(DB.forcedRest||[]);
       const activeR = listR.filter(p => !forced.has(p));
       const activeF = listF.filter(p => !forced.has(p));
-      const forcedThisRound = [...listR, ...listF].filter(p => forced.has(p));
-      const useR = activeR.length ? activeR : listR;
-      const useF = activeF.length ? activeF : listF;
+      const maxPairsIfForced = Math.min(activeR.length, activeF.length) + Math.floor(Math.max(0, activeF.length - activeR.length) / 2);
+      const canUseForced = (activeR.length + activeF.length) >= 4 && maxPairsIfForced >= 2;
+      const useR = canUseForced ? activeR : listR;
+      const useF = canUseForced ? activeF : listF;
+      const forcedThisRound = canUseForced ? [...listR, ...listF].filter(p => forced.has(p)) : [];
       const { rd } = tryBuildOne(
-        () => buildRestrictedRound(useR, useF, constrained, DB.playCount, courts),
+        () => buildRestrictedRound(useR, useF, constrained, DB.playCount, courts, usedMatchSet),
         () => {
           usedSet = new Set();
+          usedMatchSet = new Set();
           constrained = new Set();
           rxrKeys.forEach(k => constrained.add(k));
           DB.cycle++; cycledInThisCall = true;
         }
       );
       if(!rd){ stopped=true; break; }
-      if(forcedThisRound.length){ rd.resting = [...(rd.resting||[]), ...forcedThisRound.filter(p=>!(rd.resting||[]).includes(p))]; }
+      if(forcedThisRound.length){
+        const actSet = new Set(rd.active||[]);
+        rd.resting = [...new Set([...(rd.resting||[]), ...forcedThisRound])].filter(p => !actSet.has(p));
+      }
       rd.cycle = DB.cycle;
       rd.games.forEach(g=>{
         const k1 = pkey(g.t1[0], g.t1[1]);
@@ -2267,14 +2646,18 @@ function addRounds(count, toMax){
     for(let i=0; i<limit; i++){
       const forced = new Set(DB.forcedRest||[]);
       const active = players.filter(p => !forced.has(p));
-      const restForced = players.filter(p => forced.has(p));
-      const usePlayers = active.length>=2 ? active : players;
+      const canUseForced = active.length >= 2;
+      const usePlayers = canUseForced ? active : players;
+      const restForced = canUseForced ? players.filter(p => forced.has(p)) : [];
       const { rd } = tryBuildOne(
         () => buildSoloRound(usePlayers, usedMatchSet, DB.playCount, courts),
         () => { usedMatchSet = new Set(); DB.cycle++; cycledInThisCall = true; }
       );
       if(!rd){ stopped = true; break; }
-      if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+      if(restForced.length){
+        const actSet = new Set(rd.active||[]);
+        rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+      }
       rd.cycle = DB.cycle;
       rd.games.forEach(g => { usedMatchSet.add(pkey(g.t1[0], g.t2[0])); });
       rd.active.forEach(p => DB.playCount[p] = (DB.playCount[p]||0) + 1);
@@ -2290,32 +2673,44 @@ function addRounds(count, toMax){
     if(DB.mode==="single"){
       const players=parseList(DB.listA);
       if(players.length<4){ showErr("Нужно минимум 4 игрока."); return; }
-      if(K > courts*2){
-        showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
+      const totalPossiblePairs = K + Math.floor((players.length - K*2) / 2);
+      if(totalPossiblePairs < 2){
+        showErr("Недостаточно пар для проведения матча (нужно минимум 2 пары / 4 игрока).");
         return;
       }
-      // История когда-то фикс. пар — не собираем случайно
+      // История когда-то фикс. пар — не собираем случайно в текущем круге
       historyKeysToAvoid().forEach(k => usedSet.add(k));
       let usedMatchSet = new Set(DB.usedMatchups);
-      const allLocked = (K*2 === players.length);
-      const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
-      if(toMax && allLocked){
-        showErr("Все игроки в фиксированных парах — добавляем "+limit+" тур(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
-      }
+      const limit = toMax ? 999 : count;
       for(let i=0;i<limit;i++){
         const forced = new Set(DB.forcedRest||[]);
-        const lockedPlayers = new Set(lockedPairs.flat());
-        // Если игрок из фикс. пары помечен как отдых — игнорируем этот выбор для него
-        lockedPlayers.forEach(p => { if(forced.has(p)) forced.delete(p); });
+        // Если участник фикс. пары отмечен в отдых — отдыхает вся пара целиком
+        lockedPairs.forEach(([a, b]) => {
+          if(forced.has(a) || forced.has(b)){ forced.add(a); forced.add(b); }
+        });
         const active = players.filter(p => !forced.has(p));
-        const restForced = players.filter(p => forced.has(p));
-        const usePlayers = active.length >= Math.max(4, K*2) ? active : players;
+        const activeLocked = lockedPairs.filter(([a, b]) => !forced.has(a) && !forced.has(b));
+        const canUseForced = (activeLocked.length + Math.floor((active.length - activeLocked.length*2)/2)) >= 2;
+        const usePlayers = canUseForced ? active : players;
+        const useLocked = canUseForced ? activeLocked : lockedPairs;
+        const restForced = canUseForced ? players.filter(p => forced.has(p)) : [];
+
+        const prevRoundMatchSet = getLastRoundMatchSet(DB.rounds);
         const { rd } = tryBuildOne(
-          () => buildSingleRound(usePlayers, lockedPairs, usedSet, DB.playCount, courts),
-          () => { usedSet = new Set(); historyKeysToAvoid().forEach(k => usedSet.add(k)); DB.cycle++; cycledInThisCall = true; }
+          () => buildSingleRound(usePlayers, useLocked, usedSet, DB.playCount, courts, usedMatchSet, prevRoundMatchSet),
+          () => {
+            usedSet = new Set();
+            usedMatchSet = new Set();
+            DB.fixedPairsHistory = (getValidFixedPairs()||[]).map(p => pkey(p[0],p[1]));
+            DB.cycle++;
+            cycledInThisCall = true;
+          }
         );
         if(!rd){ stopped=true; break; }
-        if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+        if(restForced.length){
+          const actSet = new Set(rd.active||[]);
+          rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+        }
         rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(pkey(g.t1[0],g.t1[1]));
@@ -2330,32 +2725,39 @@ function addRounds(count, toMax){
     } else {
       const L1=parseList(DB.listM), L2=parseList(DB.listW);
       if(L1.length<2||L2.length<2){ showErr("В каждом списке минимум 2 человека."); return; }
-      if(K > courts*2){
-        showErr("Слишком много фиксированных пар ("+K+") для "+courts+" корт(ов). Нужно минимум "+Math.ceil(K/2)+" кортов или удалите часть пар.");
-        return;
-      }
       historyKeysToAvoid().forEach(k => usedSet.add(k));
       let usedMatchSet = new Set(DB.usedMatchups);
-      const allLocked = (K === Math.min(L1.length, L2.length)) && (K*2 === L1.length + L2.length);
-      const limit = toMax ? (allLocked ? Math.max(1,count) : 999) : count;
-      if(toMax && allLocked){
-        showErr("Все игроки в фиксированных парах — добавляем "+limit+" тур(ов): пары всегда одни и те же, меняется только расстановка по кортам.");
-      }
+      const limit = toMax ? 999 : count;
       for(let i=0;i<limit;i++){
         const forced = new Set(DB.forcedRest||[]);
-        const lockedPlayers = new Set(lockedPairs.flat());
-        lockedPlayers.forEach(p => { if(forced.has(p)) forced.delete(p); });
+        lockedPairs.forEach(([a, b]) => {
+          if(forced.has(a) || forced.has(b)){ forced.add(a); forced.add(b); }
+        });
         const activeL1 = L1.filter(p => !forced.has(p));
         const activeL2 = L2.filter(p => !forced.has(p));
-        const restForced = [...L1, ...L2].filter(p => forced.has(p));
-        const useL1 = activeL1.length>=2 ? activeL1 : L1;
-        const useL2 = activeL2.length>=2 ? activeL2 : L2;
+        const activeLocked = lockedPairs.filter(([a, b]) => !forced.has(a) && !forced.has(b));
+        const canUseForced = activeL1.length >= 2 && activeL2.length >= 2;
+        const useL1 = canUseForced ? activeL1 : L1;
+        const useL2 = canUseForced ? activeL2 : L2;
+        const useLocked = canUseForced ? activeLocked : lockedPairs;
+        const restForced = canUseForced ? [...L1, ...L2].filter(p => forced.has(p)) : [];
+
+        const prevRoundMatchSet = getLastRoundMatchSet(DB.rounds);
         const { rd } = tryBuildOne(
-          () => buildDoubleRound(useL1, useL2, lockedPairs, usedSet, DB.playCount, courts),
-          () => { usedSet = new Set(); historyKeysToAvoid().forEach(k => usedSet.add(k)); DB.cycle++; cycledInThisCall = true; }
+          () => buildDoubleRound(useL1, useL2, useLocked, usedSet, DB.playCount, courts, usedMatchSet, prevRoundMatchSet),
+          () => {
+            usedSet = new Set();
+            usedMatchSet = new Set();
+            DB.fixedPairsHistory = (getValidFixedPairs()||[]).map(p => dkey(p[0],p[1]));
+            DB.cycle++;
+            cycledInThisCall = true;
+          }
         );
         if(!rd){ stopped=true; break; }
-        if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+        if(restForced.length){
+          const actSet = new Set(rd.active||[]);
+          rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+        }
         rd.cycle = DB.cycle;
         rd.games.forEach(g=>{
           if(!g.t1Fixed) usedSet.add(dkey(g.t1[0],g.t1[1]));
@@ -2471,7 +2873,7 @@ function renderStandings(){
 function renderRounds(){
   const out=$("#out");
   if(!DB.rounds.length){ out.innerHTML=`<p class="hint" style="text-align:center;color:var(--navy-soft)">Пока нет туров. Заполните список и нажмите «Добавить тур(ы)».</p>`; return; }
-  const totalFixed = DB.rounds.length ? (DB.rounds[0].games||[]).reduce((n,g)=>n+(g.t1Fixed?1:0)+(g.t2Fixed?1:0),0) : 0;
+  const totalFixed = (DB.mode==="single" || DB.mode==="double") ? getValidFixedPairs().length : 0;
   const modeName =
     DB.mode==="single"     ? "один список" :
     DB.mode==="double"     ? "микст" :
@@ -2720,32 +3122,6 @@ const ABCDEF_META = {
   F:  { label:"F",   title:"Группа F",   cls:"gr-f",   color:"#7b56a8" },
 };
 
-function blankGroupABCDEF(){
-  return {
-    mode:"single",
-    courts:2,
-    bestOf:1,
-    cycle:1,
-    listA:"", listM:"", listW:"", listP:"", listR:"", listF:"", listS:"",
-    listX:"",            // список игроков для режима «мексикано» внутри группы
-    settingsCollapsed:false, // свёрнута ли панель настроек группы (сворачивается после 1-го тура)
-    fixedPairs:[], fixedPairsHistory:[],
-    forcedRest:[],
-    rounds:[],
-    usedPairs:[], usedMatchups:[],
-    playCount:{},
-    restCount:{}         // сколько раз игрок отдыхал (равномерность отдыха в мексикано)
-  };
-}
-function blankGroupsABCDEF(){
-  return {
-    ABC: blankGroupABCDEF(),
-    D:   blankGroupABCDEF(),
-    E:   blankGroupABCDEF(),
-    F:   blankGroupABCDEF()
-  };
-}
-
 function abcdefShowErr(gkey, msg){
   const e = document.getElementById("abcdefErr_"+gkey);
   if(!e) return;
@@ -2806,9 +3182,12 @@ function abcdefRecompute(g){
   const upSet = new Set(), umSet = new Set();
   g.playCount = {};
   g.restCount = {};
+  const maxCyc = g.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
+  g.cycle = maxCyc;
   g.rounds.forEach(rd => {
     (rd.active||[]).forEach(p => g.playCount[p] = (g.playCount[p]||0)+1);
     (rd.resting||[]).forEach(p => g.restCount[p] = (g.restCount[p]||0)+1);
+    if((rd.cycle||1) !== maxCyc) return;
     (rd.games||[]).forEach(gg => {
       // мексикано не запоминает пары: состав каждого тура строится заново по рейтингу
       if(g.mode==="mexicano") return;
@@ -2830,8 +3209,6 @@ function abcdefRecompute(g){
   });
   g.usedPairs = [...upSet];
   g.usedMatchups = [...umSet];
-  const maxCyc = g.rounds.reduce((m,r)=>Math.max(m, r.cycle||1), 1);
-  g.cycle = maxCyc;
 }
 
 function abcdefDeleteRound(gkey, index){
@@ -2906,14 +3283,18 @@ function abcdefAddRounds(gkey, count, toMax){
       for(let i=0;i<limit;i++){
         const forced = new Set(g.forcedRest||[]);
         const filt = pairs.filter(p => !forced.has(p[0]) && !forced.has(p[1]));
-        const restForced = pairs.filter(p => forced.has(p[0]) || forced.has(p[1])).flat();
-        const usePairs = filt.length >= 2 ? filt : pairs;
+        const canUseForced = filt.length >= 2;
+        const usePairs = canUseForced ? filt : pairs;
+        const restForced = canUseForced ? pairs.filter(p => forced.has(p[0]) || forced.has(p[1])).flat() : [];
         const { rd } = tryBuildOne(
           () => buildPairsRound(usePairs, usedMatchSet, g.playCount, courts),
           () => { usedMatchSet = new Set(); g.cycle++; cycledInThisCall = true; }
         );
         if(!rd){ stopped = true; break; }
-        if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+        if(restForced.length){
+          const actSet = new Set(rd.active||[]);
+          rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+        }
         rd.cycle = g.cycle;
         rd.games.forEach(gm => usedMatchSet.add(mkey(gm.t1, gm.t2)));
         rd.active.forEach(p => g.playCount[p] = (g.playCount[p]||0)+1);
@@ -2940,20 +3321,26 @@ function abcdefAddRounds(gkey, count, toMax){
         const forced = new Set(g.forcedRest||[]);
         const activeR = listR.filter(p => !forced.has(p));
         const activeF = listF.filter(p => !forced.has(p));
-        const forcedThisRound = [...listR, ...listF].filter(p => forced.has(p));
-        const useR = activeR.length ? activeR : listR;
-        const useF = activeF.length ? activeF : listF;
+        const maxPairsIfForced = Math.min(activeR.length, activeF.length) + Math.floor(Math.max(0, activeF.length - activeR.length) / 2);
+        const canUseForced = (activeR.length + activeF.length) >= 4 && maxPairsIfForced >= 2;
+        const useR = canUseForced ? activeR : listR;
+        const useF = canUseForced ? activeF : listF;
+        const forcedThisRound = canUseForced ? [...listR, ...listF].filter(p => forced.has(p)) : [];
         const { rd } = tryBuildOne(
-          () => buildRestrictedRound(useR, useF, constrained, g.playCount, courts),
+          () => buildRestrictedRound(useR, useF, constrained, g.playCount, courts, usedMatchSet),
           () => {
             usedSet = new Set();
+            usedMatchSet = new Set();
             constrained = new Set();
             rxrKeys.forEach(k => constrained.add(k));
             g.cycle++; cycledInThisCall = true;
           }
         );
         if(!rd){ stopped = true; break; }
-        if(forcedThisRound.length){ rd.resting = [...(rd.resting||[]), ...forcedThisRound.filter(p=>!(rd.resting||[]).includes(p))]; }
+        if(forcedThisRound.length){
+          const actSet = new Set(rd.active||[]);
+          rd.resting = [...new Set([...(rd.resting||[]), ...forcedThisRound])].filter(p => !actSet.has(p));
+        }
         rd.cycle = g.cycle;
         rd.games.forEach(gm => {
           const k1 = pkey(gm.t1[0], gm.t1[1]);
@@ -2976,14 +3363,18 @@ function abcdefAddRounds(gkey, count, toMax){
       for(let i=0;i<limit;i++){
         const forced = new Set(g.forcedRest||[]);
         const active = players.filter(p => !forced.has(p));
-        const restForced = players.filter(p => forced.has(p));
-        const usePlayers = active.length >= 2 ? active : players;
+        const canUseForced = active.length >= 2;
+        const usePlayers = canUseForced ? active : players;
+        const restForced = canUseForced ? players.filter(p => forced.has(p)) : [];
         const { rd } = tryBuildOne(
           () => buildSoloRound(usePlayers, usedMatchSet, g.playCount, courts),
           () => { usedMatchSet = new Set(); g.cycle++; cycledInThisCall = true; }
         );
         if(!rd){ stopped = true; break; }
-        if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+        if(restForced.length){
+          const actSet = new Set(rd.active||[]);
+          rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+        }
         rd.cycle = g.cycle;
         rd.games.forEach(gm => { usedMatchSet.add(pkey(gm.t1[0], gm.t2[0])); });
         rd.active.forEach(p => g.playCount[p] = (g.playCount[p]||0)+1);
@@ -2999,25 +3390,37 @@ function abcdefAddRounds(gkey, count, toMax){
       if(g.mode==="single"){
         const players = parseList(g.listA);
         if(players.length < 4){ abcdefShowErr(gkey, "Нужно минимум 4 игрока."); return; }
-        if(K > courts*2){ abcdefShowErr(gkey, "Слишком много фикс. пар ("+K+") для "+courts+" корт(ов)."); return; }
         abcdefHistoryKeysToAvoid(g).forEach(k => usedSet.add(k));
         let usedMatchSet = new Set(g.usedMatchups);
-        const allLocked = (K*2 === players.length);
-        const limit = toMax ? (allLocked ? Math.max(1, count) : 999) : count;
-        if(toMax && allLocked) abcdefShowErr(gkey, "Все игроки в фикс. парах — добавляем "+limit+" тур(ов).");
+        const limit = toMax ? 999 : count;
         for(let i=0;i<limit;i++){
           const forced = new Set(g.forcedRest||[]);
-          const lockedPlayers = new Set(lockedPairs.flat());
-          lockedPlayers.forEach(p => { if(forced.has(p)) forced.delete(p); });
+          // Если в отдых выбран один участник фикс-пары — отправляем отдыхать всю пару целиком
+          lockedPairs.forEach(([a,b]) => {
+            if(forced.has(a) || forced.has(b)){ forced.add(a); forced.add(b); }
+          });
           const active = players.filter(p => !forced.has(p));
-          const restForced = players.filter(p => forced.has(p));
-          const usePlayers = active.length >= Math.max(4, K*2) ? active : players;
+          const activeLocked = lockedPairs.filter(([a,b]) => !forced.has(a) && !forced.has(b));
+          const canUseForced = (activeLocked.length + Math.floor((active.length - activeLocked.length*2)/2)) >= 2;
+          const usePlayers = canUseForced ? active : players;
+          const activeLockedPairs = canUseForced ? activeLocked : lockedPairs;
+          const restForced = canUseForced ? players.filter(p => forced.has(p)) : [];
+          const prevRoundMatchSet = getLastRoundMatchSet(g.rounds);
           const { rd } = tryBuildOne(
-            () => buildSingleRound(usePlayers, lockedPairs, usedSet, g.playCount, courts),
-            () => { usedSet = new Set(); abcdefHistoryKeysToAvoid(g).forEach(k => usedSet.add(k)); g.cycle++; cycledInThisCall = true; }
+            () => buildSingleRound(usePlayers, activeLockedPairs, usedSet, g.playCount, courts, usedMatchSet, prevRoundMatchSet),
+            () => {
+              usedSet = new Set();
+              usedMatchSet = new Set();
+              g.fixedPairsHistory = (abcdefGetValidFixedPairs(g)||[]).map(p => pkey(p[0],p[1]));
+              g.cycle++;
+              cycledInThisCall = true;
+            }
           );
           if(!rd){ stopped = true; break; }
-          if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+          if(restForced.length){
+            const actSet = new Set(rd.active||[]);
+            rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+          }
           rd.cycle = g.cycle;
           rd.games.forEach(gm => {
             if(!gm.t1Fixed) usedSet.add(pkey(gm.t1[0], gm.t1[1]));
@@ -3032,27 +3435,39 @@ function abcdefAddRounds(gkey, count, toMax){
       } else { // double
         const L1 = parseList(g.listM), L2 = parseList(g.listW);
         if(L1.length < 2 || L2.length < 2){ abcdefShowErr(gkey, "В каждом списке минимум 2 игрока."); return; }
-        if(K > courts*2){ abcdefShowErr(gkey, "Слишком много фикс. пар ("+K+") для "+courts+" корт(ов)."); return; }
         abcdefHistoryKeysToAvoid(g).forEach(k => usedSet.add(k));
         let usedMatchSet = new Set(g.usedMatchups);
-        const allLocked = (K === Math.min(L1.length, L2.length)) && (K*2 === L1.length + L2.length);
-        const limit = toMax ? (allLocked ? Math.max(1, count) : 999) : count;
-        if(toMax && allLocked) abcdefShowErr(gkey, "Все игроки в фикс. парах — добавляем "+limit+" тур(ов).");
+        const limit = toMax ? 999 : count;
         for(let i=0;i<limit;i++){
           const forced = new Set(g.forcedRest||[]);
-          const lockedPlayers = new Set(lockedPairs.flat());
-          lockedPlayers.forEach(p => { if(forced.has(p)) forced.delete(p); });
+          // Если в отдых выбран один участник фикс-пары — отправляем отдыхать всю пару целиком
+          lockedPairs.forEach(([a,b]) => {
+            if(forced.has(a) || forced.has(b)){ forced.add(a); forced.add(b); }
+          });
           const activeL1 = L1.filter(p => !forced.has(p));
           const activeL2 = L2.filter(p => !forced.has(p));
-          const restForced = [...L1, ...L2].filter(p => forced.has(p));
-          const useL1 = activeL1.length >= 2 ? activeL1 : L1;
-          const useL2 = activeL2.length >= 2 ? activeL2 : L2;
+          const canUseActive = activeL1.length >= 2 && activeL2.length >= 2;
+          const useL1 = canUseActive ? activeL1 : L1;
+          const useL2 = canUseActive ? activeL2 : L2;
+          const activeSet1 = new Set(useL1), activeSet2 = new Set(useL2);
+          const activeLockedPairs = lockedPairs.filter(([a,b]) => activeSet1.has(a) && activeSet2.has(b));
+          const restForced = canUseActive ? [...L1, ...L2].filter(p => forced.has(p)) : [];
+          const prevRoundMatchSet = getLastRoundMatchSet(g.rounds);
           const { rd } = tryBuildOne(
-            () => buildDoubleRound(useL1, useL2, lockedPairs, usedSet, g.playCount, courts),
-            () => { usedSet = new Set(); abcdefHistoryKeysToAvoid(g).forEach(k => usedSet.add(k)); g.cycle++; cycledInThisCall = true; }
+            () => buildDoubleRound(useL1, useL2, activeLockedPairs, usedSet, g.playCount, courts, usedMatchSet, prevRoundMatchSet),
+            () => {
+              usedSet = new Set();
+              usedMatchSet = new Set();
+              g.fixedPairsHistory = (abcdefGetValidFixedPairs(g)||[]).map(p => dkey(p[0],p[1]));
+              g.cycle++;
+              cycledInThisCall = true;
+            }
           );
           if(!rd){ stopped = true; break; }
-          if(restForced.length){ rd.resting = [...(rd.resting||[]), ...restForced.filter(p=>!(rd.resting||[]).includes(p))]; }
+          if(restForced.length){
+            const actSet = new Set(rd.active||[]);
+            rd.resting = [...new Set([...(rd.resting||[]), ...restForced])].filter(p => !actSet.has(p));
+          }
           rd.cycle = g.cycle;
           rd.games.forEach(gm => {
             if(!gm.t1Fixed) usedSet.add(dkey(gm.t1[0], gm.t1[1]));
@@ -3234,15 +3649,21 @@ function renderABCDEFFixedPairs(g, gkey){
     players1 = parseList(g.listM).filter(p => !used1.has(p));
     players2 = parseList(g.listW).filter(p => !used2.has(p));
   }
-  const enough = players1.length>0 && players2.length>0;
+  const enough = g.mode==="single" ? (players1.length >= 2) : (players1.length>0 && players2.length>0);
   const mkOpts = (list, ph) => `<option value="">${ph}</option>` + list.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
   const chipsHtml = valid.length
     ? valid.map(([a,b]) => `<span class="fp-chip"><span>${esc(a)}</span> <span class="plus-sm">+</span> <span>${esc(b)}</span>
         <button data-abcdef-fp-remove="${gkey}" data-a="${esc(a)}" data-b="${esc(b)}" type="button" aria-label="Удалить">×</button></span>`).join("")
     : `<p class="fp-empty">Пока нет фикс. пар.</p>`;
+  const clearBtnHtml = valid.length
+    ? `<button class="btn ghost small" data-abcdef-fp-clear="${gkey}" type="button" title="Сбросить все фиксированные пары и продолжить со случайными парами">✕ Сбросить фиксацию пар</button>`
+    : "";
   return `<div class="def-fp-block">
-    <h4>Фиксированные пары</h4>
-    <p class="hint">Эти пары всегда играют вместе.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+      <h4 style="margin:0">Фиксированные пары</h4>
+      ${clearBtnHtml}
+    </div>
+    <p class="hint">Эти пары всегда играют вместе. Можно зафиксировать все пары, а в любой момент сбросить фиксацию и продолжить со случайными парами.</p>
     <div class="fp-add">
       <select data-abcdef-fp-select="${gkey}" data-slot="1" ${enough?"":"disabled"}>${mkOpts(players1, "— игрок 1 —")}</select>
       <span class="plus">+</span>
@@ -3416,7 +3837,7 @@ function renderABCDEFGroupPanel(gkey){
     g.mode==="solo" ? "одиночки" :
     g.mode==="mexicano" ? "мексикано" : g.mode;
   const isMex = (g.mode === "mexicano");
-  const totalFixed = g.rounds.length ? (g.rounds[0].games||[]).reduce((n,gm)=>n+(gm.t1Fixed?1:0)+(gm.t2Fixed?1:0),0) : 0;
+  const totalFixed = (g.mode==="single" || g.mode==="double") ? abcdefGetValidFixedPairs(g).length : 0;
   let extraPill = "";
   if(g.mode==="pairs"){
     const parsed = parsePairList(g.listP);
@@ -3559,7 +3980,7 @@ function attachABCDEFHandlers(){
       if(panel) panel.classList.toggle("collapsed", !!g.settingsCollapsed);
       btn.textContent = g.settingsCollapsed ? "Развернуть" : "Свернуть";
       btn.setAttribute("aria-expanded", g.settingsCollapsed ? "false" : "true");
-      saveDB();
+      saveLocal();
     };
   });
 
@@ -3573,6 +3994,7 @@ function attachABCDEFHandlers(){
       if(g.rounds.length){
         if(!confirm(`Смена режима в группе ${gkey} сбросит её туры (счёт и фикс. пары). Продолжить?`)) return;
         g.rounds = []; g.usedPairs = []; g.usedMatchups = []; g.playCount = {}; g.restCount = {}; g.cycle = 1;
+        g.fixedPairs = []; g.fixedPairsHistory = [];
       }
       g.forcedRest = [];
       g.settingsCollapsed = false; _abcdefAutoCollapsed[gkey] = false;
@@ -3669,6 +4091,8 @@ function attachABCDEFHandlers(){
       if(!confirm(`Сбросить турнир в группе ${gkey}? Списки и настройки останутся, но туры и счета будут удалены.`)) return;
       const g = DB.groupsABCDEF[gkey];
       g.rounds = []; g.usedPairs = []; g.usedMatchups = []; g.playCount = {}; g.restCount = {}; g.cycle = 1;
+      g.forcedRest = [];
+      g.fixedPairsHistory = (abcdefGetValidFixedPairs(g)||[]).map(p => g.mode==="single" ? pkey(p[0],p[1]) : dkey(p[0],p[1]));
       g.settingsCollapsed = false; _abcdefAutoCollapsed[gkey] = false;
       saveDB(); renderABCDEF();
     };
@@ -3680,9 +4104,32 @@ function attachABCDEFHandlers(){
       const gkey = btn.dataset.abcdefRest;
       const name = btn.dataset.name;
       const g = DB.groupsABCDEF[gkey];
+      const partnerMap = new Map();
+      if(g.mode === "single" || g.mode === "double"){
+        abcdefGetValidFixedPairs(g).forEach(([a,b]) => { partnerMap.set(a, b); partnerMap.set(b, a); });
+      }
+      const partner = partnerMap.get(name);
       const s = new Set(g.forcedRest||[]);
-      if(s.has(name)) s.delete(name); else s.add(name);
+      if(s.has(name)){
+        s.delete(name);
+        if(partner) s.delete(partner);
+      } else {
+        s.add(name);
+        if(partner) s.add(partner);
+      }
       g.forcedRest = [...s];
+      saveDB(); renderABCDEF();
+    };
+  });
+
+  // Фикс. пары — сбросить все
+  document.querySelectorAll("[data-abcdef-fp-clear]").forEach(btn => {
+    btn.onclick = () => {
+      const gkey = btn.dataset.abcdefFpClear;
+      const g = DB.groupsABCDEF[gkey];
+      if(!g.fixedPairs || !g.fixedPairs.length) return;
+      g.fixedPairs = [];
+      abcdefShowErr(gkey, "");
       saveDB(); renderABCDEF();
     };
   });
@@ -3926,8 +4373,10 @@ function renderFixedPairs(){
 
   if(DB.mode === "single"){
     const players = parseList(DB.listA);
-    modeInfo.textContent = players.length ? `· из ${players.length} игроков` : "";
     const avail = players.filter(p => !usedSingle.has(p));
+    modeInfo.textContent = players.length
+      ? (avail.length === 0 && valid.length > 0 ? `· все ${players.length} игроков в фикс. парах (${valid.length} пар)` : `· из ${players.length} игроков`)
+      : "";
     const mkOpts = (placeholder) =>
       `<option value="">${placeholder}</option>` +
       avail.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
@@ -3939,9 +4388,11 @@ function renderFixedPairs(){
   } else {
     const L1 = parseList(DB.listM);
     const L2 = parseList(DB.listW);
-    modeInfo.textContent = (L1.length||L2.length) ? `· из ${L1.length}+${L2.length} игроков (кросс)` : "";
     const avail1 = L1.filter(p => !used1.has(p));
     const avail2 = L2.filter(p => !used2.has(p));
+    modeInfo.textContent = (L1.length||L2.length)
+      ? (avail1.length === 0 && avail2.length === 0 && valid.length > 0 ? `· все игроки в фикс. парах (${valid.length} пар)` : `· из ${L1.length}+${L2.length} игроков (кросс)`)
+      : "";
     sel1.innerHTML = `<option value="">— из списка 1 —</option>` +
       avail1.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
     sel2.innerHTML = `<option value="">— из списка 2 —</option>` +
@@ -3950,6 +4401,9 @@ function renderFixedPairs(){
     sel1.disabled = !enough; sel2.disabled = !enough;
     $("#fpAddBtn").disabled = !enough;
   }
+
+  const clearBtn = $("#fpClearBtn");
+  if(clearBtn) clearBtn.style.display = valid.length > 0 ? "inline-flex" : "none";
 
   // список текущих пар
   if(valid.length === 0){
@@ -3965,6 +4419,7 @@ function renderFixedPairs(){
         DB.fixedPairs = DB.fixedPairs.filter(p => !(p[0]===a && p[1]===b));
         saveDB();
         renderFixedPairs();
+        if(typeof renderRestPicker==="function") renderRestPicker();
         showErr("");
       };
     });
@@ -4046,8 +4501,10 @@ document.querySelectorAll(".tab").forEach(t=>{
     if(!isSpecialSwitch && DB.rounds.length){
       if(!confirm("Смена режима сбросит текущий турнир (туры, счёт, фикс. пары). Продолжить?")) return;
       DB.rounds=[]; DB.usedPairs=[]; DB.usedMatchups=[]; DB.playCount={}; DB.restCount={}; DB.cycle=1;
+      DB.fixedPairs=[]; DB.fixedPairsHistory=[]; DB.forcedRest=[];
       DB.settingsCollapsed=false; _settingsAutoCollapsed=false;
     }
+    if(!isSpecialSwitch) DB.forcedRest=[];
     DB.mode=t.dataset.mode;
     // фикс. пары валидны только для одного режима — очищаем при переключении
     cleanupFixedPairs();
@@ -4187,8 +4644,21 @@ $("#fpAddBtn").addEventListener("click",()=>{
   }
   saveDB();
   renderFixedPairs();
+  if(typeof renderRestPicker==="function") renderRestPicker();
   showErr("");
 });
+{
+  const fpClear = $("#fpClearBtn");
+  if(fpClear) fpClear.addEventListener("click", () => {
+    if(!DB.fixedPairs || !DB.fixedPairs.length) return;
+    DB.fixedPairs = [];
+    saveDB();
+    renderFixedPairs();
+    if(typeof renderRestPicker==="function") renderRestPicker();
+    if(typeof renderRounds==="function") renderRounds();
+    showErr("");
+  });
+}
 const roundsInput=$("#rounds");
 $("#rMinus").onclick=()=>roundsInput.value=Math.max(1,(+roundsInput.value||1)-1);
 $("#rPlus").onclick=()=>roundsInput.value=Math.min(30,(+roundsInput.value||1)+1);
@@ -4199,7 +4669,7 @@ $("#printBtn").onclick=()=>window.print();
 $("#settingsToggle").onclick=()=>{
   DB.settingsCollapsed = !DB.settingsCollapsed;
   _settingsAutoCollapsed = true; // если пользователь сам развернул — не сворачиваем повторно
-  saveDB();
+  saveLocal();
   renderSettingsPanel();
 };
 $("#finishBtn").onclick=finishTournament;
@@ -4208,6 +4678,8 @@ $("#resetBtn").onclick=()=>{
   if(DB.finished){ alert("Турнир завершён — его нельзя сбросить. Создайте новый турнир."); return; }
   if(!confirm("Сбросить турнир? Списки игроков и фиксированные пары останутся, но все туры и счета будут удалены.")) return;
   DB.rounds=[]; DB.usedPairs=[]; DB.usedMatchups=[]; DB.playCount={}; DB.restCount={}; DB.cycle=1;
+  DB.forcedRest=[];
+  DB.fixedPairsHistory=(getValidFixedPairs()||[]).map(p => DB.mode==="single" ? pkey(p[0],p[1]) : dkey(p[0],p[1]));
   DB.settingsCollapsed=false; _settingsAutoCollapsed=false;
   saveDB(); renderAll(); showErr("");
 };
